@@ -14,6 +14,7 @@ import next from "next";
 import { WebSocketServer } from "ws";
 import { join } from "node:path";
 import { createHostAccounts } from "./server/host-accounts.mjs";
+import { createSettings } from "./server/settings.mjs";
 
 const dev = process.env.NODE_ENV !== "production";
 
@@ -55,7 +56,9 @@ const rooms = new Map();
 const failures = new Map();
 /** @type {Map<string, { kind: "admin" | "host", username: string, expiry: number }>} session token -> session */
 const sessions = new Map();
-const hostAccounts = createHostAccounts(process.env.DATA_DIR || join(process.cwd(), "data"));
+const dataDir = process.env.DATA_DIR || join(process.cwd(), "data");
+const hostAccounts = createHostAccounts(dataDir);
+const settings = createSettings(dataDir);
 /** @type {Set<WS>} admin dashboards receiving live room updates */
 const adminSockets = new Set();
 
@@ -224,6 +227,19 @@ async function handleApi(req, res) {
     return json(res, 200, { ok: true }, { "Set-Cookie": endSession(req, "admin") });
   }
 
+  // --- Admin: app settings (pushed to live hosts right away) ---
+  if (path === "/api/admin/settings") {
+    if (!getSession(req, "admin")) return json(res, 403, { error: "Admin session expired. Log in again." });
+    if (method === "GET") return json(res, 200, { settings: settings.get() });
+    if (method === "PUT") {
+      const result = settings.update(await readJson(req));
+      if (result.error) return json(res, 400, { error: result.error });
+      for (const room of rooms.values()) send(room.ws, { type: "settings", settings: result.settings });
+      return json(res, 200, { settings: result.settings });
+    }
+    return json(res, 405, { error: "Method not allowed." });
+  }
+
   // --- Admin: manage host accounts ---
   if (path === "/api/admin/hosts" || path.startsWith("/api/admin/hosts/")) {
     if (!getSession(req, "admin")) return json(res, 403, { error: "Admin session expired. Log in again." });
@@ -351,7 +367,7 @@ function onConnection(ws, req) {
         media: { audio: true, video: true, changedBy: null },
         viewers: new Map(),
       });
-      send(ws, { type: "host-ok", code });
+      send(ws, { type: "host-ok", code, settings: settings.get() });
       return notifyAdmins();
     }
 

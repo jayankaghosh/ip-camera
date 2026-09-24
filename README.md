@@ -18,6 +18,19 @@ viewer with the code filled in. Only the admin page is separate, at `/admin`.
 
 Several hosts can be live at the same time; each has its own code.
 
+**Alerts**: before going live the host can turn on
+
+- **Movement**: drag boxes on the camera preview; movement inside any box triggers an alert
+  (2 tiny frames per second are compared, so it's light on battery).
+- **Meow**: Google's YAMNet sound model listens for cats, entirely on the host device. The ~6 MB
+  runtime is served from `/mediapipe` (copied from `node_modules` by `npm run dev`/`build`) and the
+  ~4 MB model is downloaded once from Google (override with `NEXT_PUBLIC_YAMNET_MODEL_URL`).
+
+Each alert has a type, time, stream code and a JPEG snapshot, and is saved **on the host device**
+(IndexedDB); only the newest N are kept, where N is set by the admin (`/admin` → Settings, default
+100). Viewers receive all saved alerts when they join and new ones live, over a WebRTC data channel,
+and can **Export** everything as a ZIP (snapshots + `alerts.csv` + `alerts.json`).
+
 **Mic/camera off really means off**: the host's device is released (camera light goes out, no
 encoding, nothing sent), which saves battery. The connections stay open, so switching back on
 resumes within a second without reconnecting.
@@ -51,7 +64,7 @@ npm run dev          # http://localhost:8908
 Leave `ADMIN_USERNAME` / `ADMIN_PASSWORD` empty to disable `/admin`. Nobody can host until the admin
 has created at least one host account at `/admin` → **Hosts**.
 
-Host accounts are saved to `data/hosts.json` (passwords as salted scrypt hashes; set `DATA_DIR` to
+Host accounts and admin settings are saved to `data/hosts.json` and `data/settings.json` (passwords as salted scrypt hashes; set `DATA_DIR` to
 store it elsewhere). Back that file up; everything else is in memory. Changing or deleting a host
 account logs that host out everywhere and ends their live streams.
 

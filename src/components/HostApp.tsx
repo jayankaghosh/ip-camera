@@ -1,10 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AlertList } from "@/components/AlertList";
 import { Icon } from "@/components/icons";
 import { MediaButton } from "@/components/MediaButton";
+import { ZoneEditor } from "@/components/ZoneEditor";
+import { ALERT_CHANNEL } from "@/lib/alerts/channel";
+import { exportAlertsZip } from "@/lib/alerts/export";
+import { DEFAULT_ALERT_CONFIG, type AlertConfig, type Sensitivity } from "@/lib/alerts/types";
+import { useHostAlerts } from "@/lib/alerts/useHostAlerts";
 import { TalkIndicator } from "@/components/TalkIndicator";
-import { Avatar, CardHeader, ErrorMessage, Field, FormCard, Screen, SubmitButton } from "@/components/ui";
+import { Avatar, CardHeader, ErrorMessage, Field, FormCard, Screen, Spinner, SubmitButton } from "@/components/ui";
 import {
   createQueue,
   openSignaling,
@@ -31,6 +37,21 @@ const SPEAKING_LEVEL = 0.03;
 const SPEAKING_HOLD_MS = 700;
 
 const KINDS: MediaKind[] = ["audio", "video"];
+
+// The host's alert choices are remembered per account on this device, so areas needn't be redrawn.
+const configKey = (account: string) => `ip-camera:alerts:${account}`;
+function loadAlertConfig(account: string): AlertConfig {
+  try {
+    return { ...DEFAULT_ALERT_CONFIG, ...JSON.parse(localStorage.getItem(configKey(account)) ?? "{}") };
+  } catch {
+    return DEFAULT_ALERT_CONFIG;
+  }
+}
+function saveAlertConfig(account: string, config: AlertConfig) {
+  try {
+    localStorage.setItem(configKey(account), JSON.stringify(config));
+  } catch {}
+}
 const CONSTRAINTS: Record<MediaKind, MediaTrackConstraints> = {
   video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
   audio: { echoCancellation: true, noiseSuppression: true },
@@ -40,7 +61,9 @@ export function HostApp({ onBack }: { onBack: () => void }) {
   // Which host account is logged in: undefined while checking, null when logged out.
   const [account, setAccount] = useState<string | null | undefined>(undefined);
   const [loggingIn, setLoggingIn] = useState(false);
-  const [status, setStatus] = useState<"setup" | "starting" | "live">("setup");
+  const [status, setStatus] = useState<"setup" | "opening" | "preview" | "starting" | "live">("setup");
+  const [alertConfig, setAlertConfigState] = useState<AlertConfig>(DEFAULT_ALERT_CONFIG);
+  const [maxAlerts, setMaxAlerts] = useState(100);
   const [error, setError] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -79,7 +102,10 @@ export function HostApp({ onBack }: { onBack: () => void }) {
   useEffect(() => {
     fetch("/api/host/session")
       .then((r) => r.json())
-      .then((body: { loggedIn?: boolean; username?: string }) => setAccount(body.loggedIn ? body.username! : null))
+      .then((body: { loggedIn?: boolean; username?: string }) => {
+        setAccount(body.loggedIn ? body.username! : null);
+        if (body.loggedIn) setAlertConfigState(loadAlertConfig(body.username!));
+      })
       .catch(() => setAccount(null));
   }, []);
 
@@ -95,7 +121,10 @@ export function HostApp({ onBack }: { onBack: () => void }) {
         body: JSON.stringify({ username: form.get("username"), password: form.get("password") }),
       });
       const body = await res.json();
-      if (res.ok) setAccount(body.username);
+      if (res.ok) {
+        setAccount(body.username);
+        setAlertConfigState(loadAlertConfig(body.username));
+      }
       else setError(body.error ?? "Login failed.");
     } catch {
       setError("Could not reach the server.");
@@ -110,6 +139,14 @@ export function HostApp({ onBack }: { onBack: () => void }) {
     setAccount(null);
   }
 
+  function setAlertConfig(change: Partial<AlertConfig>) {
+    setAlertConfigState((c) => {
+      const next = { ...c, ...change };
+      if (account) saveAlertConfig(account, next);
+      return next;
+    });
+  }
+
   // Only the camera goes to the preview (it's muted anyway); a fresh MediaStream makes the <video> re-render.
   function refreshPreview() {
     const stream = streamRef.current;
@@ -117,7 +154,7 @@ export function HostApp({ onBack }: { onBack: () => void }) {
   }
 
   useEffect(() => {
-    if (status === "live") refreshPreview();
+    if (status === "live" || status === "preview") refreshPreview();
   }, [status]);
 
   // Poll each viewer's incoming mic level to show who is speaking.
@@ -144,6 +181,17 @@ export function HostApp({ onBack }: { onBack: () => void }) {
   function trackOf(kind: MediaKind) {
     return streamRef.current?.getTracks().find((t) => t.kind === kind) ?? null;
   }
+
+  const hostAlerts = useHostAlerts({
+    account,
+    config: alertConfig,
+    live: status === "live",
+    streamCode: code,
+    maxAlerts,
+    micOn: media.audio,
+    videoRef,
+    getMicTrack: () => trackOf("audio"),
+  });
 
   function watchTrack(track: MediaStreamTrack) {
     // Camera unplugged or permission revoked: report it as turned off.
@@ -210,6 +258,8 @@ export function HostApp({ onBack }: { onBack: () => void }) {
     speaker.autoplay = true;
     speaker.srcObject = new MediaStream([talk.receiver.track]);
     speaker.play().catch(() => setVoicesBlocked(true)); // normally allowed: the host clicked "Start camera"
+    // Alerts go to this viewer over a data channel: history when it opens, then live.
+    hostAlerts.attach(pc.createDataChannel(ALERT_CHANNEL, { ordered: true }));
     peersRef.current.set(viewer.id, { pc, enqueue, senders, talk, speaker });
     setViewers((v) => [...v, { ...viewer, joinedAt: Date.now(), micOn: false }]);
 
@@ -237,6 +287,8 @@ export function HostApp({ onBack }: { onBack: () => void }) {
       setViewers((v) => v.map((x) => (x.id === msg.viewerId ? { ...x, micOn: msg.enabled } : x)));
     } else if (msg.type === "viewer-left") {
       removePeer(msg.viewerId);
+    } else if (msg.type === "settings") {
+      setMaxAlerts(msg.settings.maxAlerts);
     } else if (msg.type === "set-media") {
       setDevice(msg.kind, msg.enabled, msg.by ?? null);
     } else if (msg.type === "signal" && msg.from) {
@@ -249,9 +301,10 @@ export function HostApp({ onBack }: { onBack: () => void }) {
     }
   }
 
-  async function start() {
+  /** Step 1: turn the camera on (for the area preview, or straight before going live). */
+  async function openCamera() {
     setError(null);
-    setStatus("starting");
+    setStatus("opening");
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error("Camera access needs HTTPS (or localhost). See the README.");
@@ -259,10 +312,32 @@ export function HostApp({ onBack }: { onBack: () => void }) {
       streamRef.current = await navigator.mediaDevices.getUserMedia(CONSTRAINTS);
       streamRef.current.getTracks().forEach(watchTrack);
       setMedia({ audio: true, video: true, changedBy: null });
+      return true;
+    } catch (err) {
+      stopAll();
+      const denied = err instanceof DOMException && err.name === "NotAllowedError";
+      setError(denied ? "Camera/microphone permission was denied." : (err as Error).message);
+      setStatus("setup");
+      return false;
+    }
+  }
 
+  async function continueFromSetup() {
+    if (!(await openCamera())) return;
+    // Movement alerts need areas drawn on the picture first; otherwise go straight live.
+    if (alertConfig.movement) setStatus("preview");
+    else goLive();
+  }
+
+  /** Step 2: register with the server and start accepting viewers. */
+  async function goLive() {
+    setError(null);
+    setStatus("starting");
+    try {
       const ws = await openSignaling((msg) => {
         if (msg.type === "host-ok") {
           setCode(msg.code);
+          setMaxAlerts(msg.settings.maxAlerts);
           setStatus("live");
           navigator.wakeLock?.request("screen").then((l) => (wakeLockRef.current = l), () => {});
         } else if (msg.type === "error") {
@@ -292,8 +367,7 @@ export function HostApp({ onBack }: { onBack: () => void }) {
       ws.send(JSON.stringify({ type: "host", password: password.trim() }));
     } catch (err) {
       stopAll();
-      const denied = err instanceof DOMException && err.name === "NotAllowedError";
-      setError(denied ? "Camera/microphone permission was denied." : (err as Error).message);
+      setError((err as Error).message);
       setStatus("setup");
     }
   }
@@ -325,7 +399,10 @@ export function HostApp({ onBack }: { onBack: () => void }) {
     );
   }
 
-  if (status !== "live") {
+  // "starting" stays on whichever screen the host came from (the area preview if movement is on).
+  const onPreview = status === "preview" || (status === "starting" && alertConfig.movement);
+
+  if (status !== "live" && !onPreview) {
     return (
       <Screen>
         <FormCard onBack={onBack}>
@@ -348,7 +425,7 @@ export function HostApp({ onBack }: { onBack: () => void }) {
             className="flex flex-col gap-4"
             onSubmit={(e) => {
               e.preventDefault();
-              start();
+              continueFromSetup();
             }}
           >
             <Field
@@ -362,13 +439,96 @@ export function HostApp({ onBack }: { onBack: () => void }) {
               onChange={(e) => setPassword(e.target.value)}
               hint="Viewers type this along with the code. It's not your account password."
             />
+            <fieldset className="flex flex-col gap-2">
+              <legend className="mb-1.5 flex items-center gap-1.5 text-sm font-medium">
+                <Icon name="bell" className="h-4 w-4 text-muted" /> Alerts <span className="font-normal text-muted">(optional)</span>
+              </legend>
+              {(
+                [
+                  ["movement", "move", "Movement", "In areas you draw on the camera next."],
+                  ["meow", "paw", "Meow", "Listens for cats. Downloads a ~10 MB sound model the first time."],
+                ] as const
+              ).map(([key, icon, title, text]) => (
+                <label key={key} className="flex cursor-pointer items-center gap-3 rounded-xl bg-surface-2 px-3.5 py-3">
+                  <Icon name={icon} className="h-5 w-5 shrink-0 text-muted" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold">{title}</span>
+                    <span className="block text-xs leading-snug text-muted">{text}</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={alertConfig[key]}
+                    onChange={(e) => setAlertConfig({ [key]: e.target.checked })}
+                    className="h-5 w-5 shrink-0 accent-[var(--accent)]"
+                  />
+                </label>
+              ))}
+              {(alertConfig.movement || alertConfig.meow) && (
+                <div className="flex items-center justify-between gap-3 px-1 pt-1">
+                  <span className="text-sm text-muted">Sensitivity</span>
+                  <div className="flex gap-1 rounded-xl bg-surface-2 p-1" role="radiogroup" aria-label="Sensitivity">
+                    {(["low", "medium", "high"] as Sensitivity[]).map((level) => (
+                      <button
+                        key={level}
+                        type="button"
+                        role="radio"
+                        aria-checked={alertConfig.sensitivity === level}
+                        onClick={() => setAlertConfig({ sensitivity: level })}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition-colors ${
+                          alertConfig.sensitivity === level ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg"
+                        }`}
+                      >
+                        {level}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </fieldset>
             <ErrorMessage>{error}</ErrorMessage>
-            <SubmitButton busy={status === "starting"}>
-              <Icon name="video" /> Start camera
+            <SubmitButton busy={status === "opening" || status === "starting"}>
+              <Icon name="video" /> {alertConfig.movement ? "Next: choose areas" : "Start camera"}
             </SubmitButton>
           </form>
         </FormCard>
       </Screen>
+    );
+  }
+
+  if (onPreview) {
+    const zones = alertConfig.zones;
+    return (
+      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center gap-4 p-3 sm:p-6">
+        <div className="px-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Choose areas to watch</h1>
+          <p className="mt-1 text-sm text-muted">
+            Drag on the picture to draw a box. Movement inside any box triggers an alert. Tap ✕ to remove one.
+          </p>
+        </div>
+        <div className="relative overflow-hidden rounded-[20px] bg-black">
+          <video ref={videoRef} autoPlay playsInline muted className="aspect-video w-full object-contain" />
+          <ZoneEditor videoRef={videoRef} zones={zones} onChange={(z) => setAlertConfig({ zones: z })} />
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm text-muted">
+            {zones.length === 0 ? "No areas yet" : `${zones.length} area${zones.length > 1 ? "s" : ""}`}
+          </span>
+          {zones.length > 0 && (
+            <button onClick={() => setAlertConfig({ zones: [] })} className="btn btn-sm btn-ghost-danger">
+              Clear all
+            </button>
+          )}
+          <div className="ml-auto flex gap-2">
+            <button onClick={stop} className="btn btn-secondary">
+              Cancel
+            </button>
+            <button onClick={goLive} disabled={zones.length === 0 || status === "starting"} className="btn btn-primary">
+              {status === "starting" ? <Spinner /> : <><Icon name="video" /> Go live</>}
+            </button>
+          </div>
+        </div>
+        <ErrorMessage>{error}</ErrorMessage>
+      </main>
     );
   }
 
@@ -448,8 +608,9 @@ export function HostApp({ onBack }: { onBack: () => void }) {
         <ErrorMessage>{error}</ErrorMessage>
       </section>
 
+      <div className="flex w-full shrink-0 flex-col gap-4 lg:w-80">
       {/* Who's watching */}
-      <aside className="card w-full shrink-0 p-4 lg:w-80">
+      <aside className="card p-4">
         <h2 className="flex items-center gap-2 px-1 text-sm font-semibold">
           <Icon name="users" className="h-4 w-4 text-muted" /> Watching
           <span className="ml-auto rounded-full bg-surface-2 px-2 py-0.5 text-xs font-semibold text-muted">{viewers.length}</span>
@@ -498,6 +659,42 @@ export function HostApp({ onBack }: { onBack: () => void }) {
           </ul>
         )}
       </aside>
+
+      {(alertConfig.movement || alertConfig.meow || hostAlerts.alerts.length > 0) && (
+        <section className="card flex flex-col gap-3 p-4">
+          {(alertConfig.movement || alertConfig.meow) && (
+            <div className="flex flex-wrap gap-1.5 px-1">
+              {alertConfig.movement && (
+                <span className={`chip ${media.video ? "bg-success/15 text-success" : "bg-surface-2 text-muted"}`}>
+                  <Icon name="move" className="h-3 w-3" />
+                  {media.video ? `Watching ${alertConfig.zones.length} area${alertConfig.zones.length > 1 ? "s" : ""}` : "Movement paused · camera off"}
+                </span>
+              )}
+              {alertConfig.meow && (
+                <span
+                  title={hostAlerts.meowError ?? undefined}
+                  className={`chip ${
+                    hostAlerts.meowStatus === "listening"
+                      ? "bg-success/15 text-success"
+                      : hostAlerts.meowStatus === "error"
+                        ? "bg-danger/12 text-danger"
+                        : "bg-surface-2 text-muted"
+                  }`}
+                >
+                  <Icon name="paw" className="h-3 w-3" />
+                  {{ off: "Meow off", loading: "Loading sound model…", listening: "Listening for meows", paused: "Meow paused · mic off", error: "Meow unavailable" }[hostAlerts.meowStatus]}
+                </span>
+              )}
+            </div>
+          )}
+          <AlertList
+            alerts={hostAlerts.alerts}
+            onExport={() => exportAlertsZip(hostAlerts.alerts, code ?? "stream")}
+            empty="Nothing yet. Alerts are saved on this device."
+          />
+        </section>
+      )}
+      </div>
     </main>
   );
 }

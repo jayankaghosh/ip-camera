@@ -11,9 +11,13 @@ export type RoomSummary = {
   viewers: { name: string; isAdmin: boolean; joinedAt: number; micOn: boolean }[];
 };
 
+/** Set by the admin; sent to hosts when they go live and whenever it changes. */
+export type AppSettings = { maxAlerts: number };
+
 export type ServerMessage =
   | { type: "error"; message: string }
-  | { type: "host-ok"; code: string }
+  | { type: "host-ok"; code: string; settings: AppSettings }
+  | { type: "settings"; settings: AppSettings }
   | { type: "join-ok"; media: MediaState }
   | { type: "host-left" }
   | { type: "kicked" }

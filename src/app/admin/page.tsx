@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AdminSettings } from "@/components/AdminSettings";
 import { HostAccounts } from "@/components/HostAccounts";
 import { Icon } from "@/components/icons";
 import { Avatar, CardHeader, ErrorMessage, Field, FormCard, Screen, SubmitButton } from "@/components/ui";
@@ -15,7 +16,7 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [rooms, setRooms] = useState<RoomSummary[] | null>(null);
-  const [tab, setTab] = useState<"streams" | "hosts">("streams");
+  const [tab, setTab] = useState<"streams" | "hosts" | "settings">("streams");
 
   useEffect(() => {
     fetch("/api/admin/session")
@@ -97,6 +98,7 @@ export default function AdminPage() {
   const tabs = [
     { key: "streams", label: "Live streams", count: rooms?.length },
     { key: "hosts", label: "Hosts" },
+    { key: "settings", label: "Settings" },
   ] as const;
 
   return (
@@ -132,6 +134,7 @@ export default function AdminPage() {
 
       <ErrorMessage>{error}</ErrorMessage>
       {tab === "hosts" && <HostAccounts rooms={rooms ?? []} />}
+      {tab === "settings" && <AdminSettings />}
 
       {tab === "streams" && rooms?.length === 0 && (
         <div className="card flex flex-col items-center gap-3 px-6 py-14 text-center">

@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AlertList } from "@/components/AlertList";
 import { Icon } from "@/components/icons";
 import { CardHeader, ErrorMessage, FormCard, Screen, Spinner } from "@/components/ui";
 import { JoinForm } from "@/components/JoinForm";
 import { MediaButton } from "@/components/MediaButton";
+import { ALERT_CHANNEL, receiveAlerts, type ReceivedAlert } from "@/lib/alerts/channel";
+import { exportAlertsZip } from "@/lib/alerts/export";
 import { createQueue, openSignaling, rtcConfig, type MediaKind, type MediaState } from "@/lib/rtc";
 
 type Stats = { codec: string; resolution: string; fps: number; kbps: number };
@@ -27,6 +30,9 @@ export function ViewerApp({
   const [micOn, setMicOn] = useState(false);
   const [micBusy, setMicBusy] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
+  const [alerts, setAlerts] = useState<ReceivedAlert[]>([]);
+  const [streamCode, setStreamCode] = useState(initialCode);
+  const stopAlertsRef = useRef<(() => void) | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<HTMLDivElement>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
@@ -45,6 +51,8 @@ export function ViewerApp({
     micTrackRef.current?.stop();
     micTrackRef.current = null;
     talkSenderRef.current = null;
+    stopAlertsRef.current?.(); // frees the snapshot images
+    stopAlertsRef.current = null;
   }
 
   useEffect(() => stopAll, []);
@@ -99,6 +107,8 @@ export function ViewerApp({
 
   async function join(name: string, code: string, password: string) {
     setError(null);
+    setAlerts([]);
+    setStreamCode(code.toUpperCase());
     setStatus("joining");
     const enqueue = createQueue();
     try {
@@ -123,6 +133,12 @@ export function ViewerApp({
           pcRef.current = pc;
           pc.onicecandidate = (e) => {
             if (e.candidate) ws.send(JSON.stringify({ type: "signal", data: { candidate: e.candidate } }));
+          };
+          // The host's alerts: full history first, then new ones as they happen.
+          pc.ondatachannel = (e) => {
+            if (e.channel.label !== ALERT_CHANNEL) return;
+            stopAlertsRef.current?.();
+            stopAlertsRef.current = receiveAlerts(e.channel, (list) => setAlerts([...list]));
           };
           pc.ontrack = (e) => {
             remoteStreamRef.current = e.streams[0];
@@ -318,6 +334,13 @@ export function ViewerApp({
         </div>
       </div>
       <ErrorMessage>{micError}</ErrorMessage>
+      <section className="card p-4">
+        <AlertList
+          alerts={alerts}
+          onExport={() => exportAlertsZip(alerts, streamCode)}
+          empty="No alerts from this camera yet. They appear here as they happen."
+        />
+      </section>
       <p className="px-2 text-center text-xs leading-relaxed text-muted">
         The first two buttons turn the <strong className="font-semibold text-fg">host&apos;s</strong> mic and camera on or off for
         everyone. <strong className="font-semibold text-fg">Talk</strong> turns on your own mic so the host can hear you

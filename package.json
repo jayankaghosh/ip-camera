@@ -3,13 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/copy-mediapipe.mjs",
     "dev": "node server.mjs",
+    "prebuild": "node scripts/copy-mediapipe.mjs",
     "build": "next build",
     "start": "NODE_ENV=production node server.mjs",
     "lint": "eslint",
     "cert": "mkdir -p certs && openssl req -x509 -newkey rsa:2048 -nodes -days 365 -subj /CN=ip-camera -keyout certs/key.pem -out certs/cert.pem"
   },
   "dependencies": {
+    "@mediapipe/tasks-audio": "^1.0.1",
+    "fflate": "^0.8.3",
     "next": "16.3.6",
     "react": "19.2.8",
     "react-dom": "19.2.8",
