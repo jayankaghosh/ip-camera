@@ -512,7 +512,7 @@ export function HostApp({ onBack }: { onBack: () => void }) {
           </p>
         </div>
         <div className="relative overflow-hidden rounded-[20px] bg-black">
-          <video ref={videoRef} autoPlay playsInline muted className="aspect-video w-full object-contain" />
+          <video ref={videoRef} autoPlay playsInline muted className="mirror aspect-video w-full object-contain" />
           <ZoneEditor videoRef={videoRef} zones={zones} onChange={(z) => setAlertConfig({ zones: z })} />
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -582,7 +582,7 @@ export function HostApp({ onBack }: { onBack: () => void }) {
 
         {/* Camera preview with call-style controls */}
         <div className="relative overflow-hidden rounded-[20px] bg-black">
-          <video ref={videoRef} autoPlay playsInline muted className="aspect-video w-full object-contain" />
+          <video ref={videoRef} autoPlay playsInline muted className="mirror aspect-video w-full object-contain" />
           {!media.video && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#111] text-white/70">
               <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-white/10">

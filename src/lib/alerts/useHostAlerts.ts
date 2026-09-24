@@ -20,14 +20,17 @@ function toView(r: AlertRecord): ReceivedAlert {
   return { id: r.id, type: r.type, ts: r.ts, streamCode: r.streamCode, detail: r.detail, image: r.image, url: r.image && URL.createObjectURL(r.image) };
 }
 
-/** JPEG of the camera right now, or null if the camera is off. */
+/** JPEG of the camera right now (mirrored, like the video everyone sees), or null if the camera is off. */
 function snapshot(video: HTMLVideoElement | null): Promise<Blob | null> {
   const live = video?.srcObject instanceof MediaStream && video.srcObject.getVideoTracks().some((t) => t.readyState === "live");
   if (!video || !live || !video.videoWidth) return Promise.resolve(null);
   const canvas = document.createElement("canvas");
   canvas.width = SNAPSHOT_WIDTH;
   canvas.height = Math.round((SNAPSHOT_WIDTH * video.videoHeight) / video.videoWidth);
-  canvas.getContext("2d")!.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const ctx = canvas.getContext("2d")!;
+  ctx.translate(canvas.width, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.7));
 }
 
@@ -168,7 +171,8 @@ export function useHostAlerts({
     !live || !config.meow ? "off" : meowError ? "error" : !meowReady ? "loading" : micOn ? "listening" : "paused";
 
   return {
-    alerts,
+    /** Only this stream's alerts; older streams' stay saved on the device (up to the limit) but hidden. */
+    alerts: alerts.filter((a) => a.streamCode === streamCode),
     meowStatus,
     meowError,
     ntfyStatus,
@@ -177,7 +181,8 @@ export function useHostAlerts({
       const sender = createAlertSender(channel);
       channel.onopen = () => {
         sendersRef.current.add(sender);
-        sender.sendHistory(recordsRef.current, latest.current.maxAlerts);
+        const { streamCode, maxAlerts } = latest.current;
+        sender.sendHistory(recordsRef.current.filter((r) => r.streamCode === streamCode), maxAlerts);
       };
       channel.onclose = () => sendersRef.current.delete(sender);
     },

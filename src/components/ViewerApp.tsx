@@ -271,7 +271,7 @@ export function ViewerApp({
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col justify-center gap-3 p-3 sm:p-6">
       <div ref={playerRef} className="relative overflow-hidden rounded-[20px] bg-black">
-        <video ref={videoRef} autoPlay playsInline className="aspect-video h-full w-full object-contain" />
+        <video ref={videoRef} autoPlay playsInline className="mirror aspect-video h-full w-full object-contain" />
         {!media.video && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#111] text-white/70">
             <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-white/10">

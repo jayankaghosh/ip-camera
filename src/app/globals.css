@@ -206,6 +206,12 @@ body {
   }
 }
 
+/* Selfie-style mirrored video: raise your left hand and the person on screen raises their right.
+   A transform is composited by the GPU, so it costs nothing on old phones. */
+.mirror {
+  transform: scaleX(-1);
+}
+
 /* LIVE dot: opacity-only animation, which phones run on the compositor without repainting. */
 @keyframes live-dot {
   50% {

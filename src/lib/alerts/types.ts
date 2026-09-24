@@ -18,7 +18,7 @@ export type AlertRecord = {
   ts: number;
   /** e.g. "Area 2" or "Meow · 84%" */
   detail: string;
-  /** JPEG snapshot of the camera at that moment; null if the camera was off. */
+  /** JPEG snapshot of the camera at that moment (mirrored like the video); null if the camera was off. */
   image: Blob | null;
 };
 

@@ -18,10 +18,14 @@ function contentBox(video: HTMLVideoElement): Box | null {
 }
 
 const clamp = (n: number) => Math.min(1, Math.max(0, n));
+/** Screen box ⇄ frame box for a horizontally mirrored preview (the flip is its own inverse). */
+const flip = (b: Box): Box => ({ ...b, x: 1 - b.x - b.w });
 
 /**
  * Drag on the camera preview to draw watched areas. Coordinates are stored as fractions of the
- * camera frame, so they line up regardless of screen size or letterboxing.
+ * real (unmirrored) camera frame, so they line up regardless of screen size or letterboxing, and
+ * the motion detector can use them directly. The preview itself is shown mirrored, so x is flipped
+ * between screen and frame.
  */
 export function ZoneEditor({
   videoRef,
@@ -83,7 +87,7 @@ export function ZoneEditor({
         const box = boxFrom(start.current, point(e));
         start.current = null;
         setDraft(null);
-        if (box.w >= MIN_SIZE && box.h >= MIN_SIZE) onChange([...zones, { id: crypto.randomUUID(), ...box }]);
+        if (box.w >= MIN_SIZE && box.h >= MIN_SIZE) onChange([...zones, { id: crypto.randomUUID(), ...flip(box) }]);
       }}
       onPointerCancel={() => {
         start.current = null;
@@ -91,7 +95,7 @@ export function ZoneEditor({
       }}
     >
       {zones.map((z, i) => (
-        <div key={z.id} className="absolute rounded-md border-2 border-[#ffd60a] bg-[#ffd60a]/15" style={pct(z)}>
+        <div key={z.id} className="absolute rounded-md border-2 border-[#ffd60a] bg-[#ffd60a]/15" style={pct(flip(z))}>
           <span className="absolute left-1 top-1 rounded bg-[#ffd60a] px-1.5 text-[11px] font-bold text-black">{i + 1}</span>
           <button
             type="button"
