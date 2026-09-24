@@ -18,7 +18,8 @@ export default function AdminPage() {
 
   useEffect(() => {
     fetch("/api/admin/session")
-      .then((r) => setSession(r.ok ? "in" : "out"))
+      .then((r) => r.json())
+      .then((body: { loggedIn?: boolean }) => setSession(body.loggedIn ? "in" : "out"))
       .catch(() => setSession("out"));
   }, []);
 

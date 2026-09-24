@@ -148,8 +148,9 @@ function readJson(req) {
 async function handleAdminApi(req, res) {
   const path = req.url?.split("?")[0];
   if (path === "/api/admin/session" && req.method === "GET") {
-    if (isAdminRequest(req)) json(res, 200, { username: adminUsername });
-    else json(res, 401, { error: "Not logged in." });
+    // Never 401: that status belongs to nginx's Basic auth, and browsers may drop the saved
+    // nginx login when the app answers with it.
+    json(res, 200, isAdminRequest(req) ? { loggedIn: true, username: adminUsername } : { loggedIn: false });
     return true;
   }
   if (path === "/api/admin/login" && req.method === "POST") {
@@ -168,7 +169,7 @@ async function handleAdminApi(req, res) {
     const passOk = safeEqual(String(password ?? ""), adminPassword);
     if (!userOk || !passOk) {
       recordFailure(lockKey);
-      json(res, 401, { error: "Wrong username or password." });
+      json(res, 403, { error: "Wrong username or password." });
       return true;
     }
     failures.delete(lockKey);
