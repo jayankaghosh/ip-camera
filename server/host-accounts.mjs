@@ -2,7 +2,7 @@
 // Passwords are stored only as salted scrypt hashes.
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomInt, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 
 const scryptAsync = promisify(scrypt);
@@ -10,9 +10,13 @@ const KEY_LENGTH = 32;
 const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{3,32}$/;
 const MIN_PASSWORD_LENGTH = 6;
 const MAX_PASSWORD_LENGTH = 128;
+// Random part of each host's ntfy topic: letters/digits ntfy allows, no look-alikes.
+const NTFY_KEY_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
+const NTFY_KEY_LENGTH = 8;
+const newNtfyKey = () => Array.from({ length: NTFY_KEY_LENGTH }, () => NTFY_KEY_ALPHABET[randomInt(NTFY_KEY_ALPHABET.length)]).join("");
 
 /**
- * @typedef {{ username: string, salt: string, hash: string, createdAt: number, updatedAt: number }} HostAccount
+ * @typedef {{ username: string, salt: string, hash: string, createdAt: number, updatedAt: number, ntfyKey?: string }} HostAccount
  */
 
 export function createHostAccounts(dataDir) {
@@ -61,6 +65,17 @@ export function createHostAccounts(dataDir) {
         .sort((a, b) => a.username.localeCompare(b.username));
     },
 
+    /** The account's permanent random ntfy key; accounts created before this existed get one now. */
+    ntfyKey(username) {
+      const account = accounts.get(String(username).toLowerCase());
+      if (!account) return null;
+      if (!account.ntfyKey) {
+        account.ntfyKey = newNtfyKey();
+        save();
+      }
+      return account.ntfyKey;
+    },
+
     exists(username) {
       return accounts.has(String(username).toLowerCase());
     },
@@ -80,7 +95,7 @@ export function createHostAccounts(dataDir) {
       if (error) return { error };
       if (accounts.has(username.toLowerCase())) return { error: `A host named "${username}" already exists.` };
       const now = Date.now();
-      const account = { username, ...(await hashPassword(password)), createdAt: now, updatedAt: now };
+      const account = { username, ...(await hashPassword(password)), createdAt: now, updatedAt: now, ntfyKey: newNtfyKey() };
       accounts.set(username.toLowerCase(), account);
       save();
       return { account };

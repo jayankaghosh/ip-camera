@@ -7,6 +7,7 @@ import { MediaButton } from "@/components/MediaButton";
 import { ZoneEditor } from "@/components/ZoneEditor";
 import { ALERT_CHANNEL } from "@/lib/alerts/channel";
 import { exportAlertsZip } from "@/lib/alerts/export";
+import { ntfyTopicUrl } from "@/lib/alerts/ntfy";
 import { DEFAULT_ALERT_CONFIG, type AlertConfig, type Sensitivity } from "@/lib/alerts/types";
 import { useHostAlerts } from "@/lib/alerts/useHostAlerts";
 import { TalkIndicator } from "@/components/TalkIndicator";
@@ -18,6 +19,7 @@ import {
   rtcConfig,
   type MediaKind,
   type MediaState,
+  type NtfyTarget,
   type ServerMessage,
 } from "@/lib/rtc";
 
@@ -64,6 +66,8 @@ export function HostApp({ onBack }: { onBack: () => void }) {
   const [status, setStatus] = useState<"setup" | "opening" | "preview" | "starting" | "live">("setup");
   const [alertConfig, setAlertConfigState] = useState<AlertConfig>(DEFAULT_ALERT_CONFIG);
   const [maxAlerts, setMaxAlerts] = useState(100);
+  const [ntfy, setNtfy] = useState<NtfyTarget | null>(null);
+  const [topicCopied, setTopicCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -191,6 +195,7 @@ export function HostApp({ onBack }: { onBack: () => void }) {
     micOn: media.audio,
     videoRef,
     getMicTrack: () => trackOf("audio"),
+    ntfy,
   });
 
   function watchTrack(track: MediaStreamTrack) {
@@ -338,6 +343,7 @@ export function HostApp({ onBack }: { onBack: () => void }) {
         if (msg.type === "host-ok") {
           setCode(msg.code);
           setMaxAlerts(msg.settings.maxAlerts);
+          setNtfy(msg.ntfy);
           setStatus("live");
           navigator.wakeLock?.request("screen").then((l) => (wakeLockRef.current = l), () => {});
         } else if (msg.type === "error") {
@@ -662,6 +668,41 @@ export function HostApp({ onBack }: { onBack: () => void }) {
 
       {(alertConfig.movement || alertConfig.meow || hostAlerts.alerts.length > 0) && (
         <section className="card flex flex-col gap-3 p-4">
+          {ntfy && (alertConfig.movement || alertConfig.meow) && (
+            <div className="flex flex-col gap-2 rounded-xl bg-surface-2 p-3">
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-muted">
+                <Icon name="bell" className="h-3.5 w-3.5" /> ntfy topic name
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    navigator.clipboard?.writeText(ntfy.topic).then(() => {
+                      setTopicCopied(true);
+                      setTimeout(() => setTopicCopied(false), 1500);
+                    });
+                  }}
+                  title="Copy topic"
+                  className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg bg-surface px-3 py-2 text-left transition-colors hover:bg-line"
+                >
+                  <span className="break-all font-mono text-[13px] font-semibold">{ntfy.topic}</span>
+                  <span className={topicCopied ? "text-success" : "text-muted"}>
+                    <Icon name={topicCopied ? "check" : "copy"} className="h-4 w-4" />
+                  </span>
+                </button>
+                <a href={ntfyTopicUrl(ntfy.server, ntfy.topic)} target="_blank" rel="noopener" className="btn btn-sm btn-secondary">
+                  Open
+                </a>
+              </div>
+              <p className="text-xs leading-relaxed text-muted">
+                Install the <strong className="font-semibold text-fg">ntfy</strong> app and subscribe to this topic to get
+                alerts with snapshots on your phone. Only share it with people who should get them.
+                {hostAlerts.ntfyStatus.state === "sent" && <span className="text-success"> Last alert sent ✓</span>}
+                {hostAlerts.ntfyStatus.state === "failed" && (
+                  <span className="text-danger" title={hostAlerts.ntfyStatus.error}> Last notification failed to send.</span>
+                )}
+              </p>
+            </div>
+          )}
           {(alertConfig.movement || alertConfig.meow) && (
             <div className="flex flex-wrap gap-1.5 px-1">
               {alertConfig.movement && (

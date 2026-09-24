@@ -5,6 +5,8 @@ export type MediaState = { audio: boolean; video: boolean; changedBy: string | n
 export type RoomSummary = {
   code: string;
   host: string;
+  /** The host account's ntfy topic (furcam-alert-<username>-<random>); shown to the host and admin. */
+  ntfyTopic: string | null;
   password: string | null;
   createdAt: number;
   media: MediaState;
@@ -14,9 +16,12 @@ export type RoomSummary = {
 /** Set by the admin; sent to hosts when they go live and whenever it changes. */
 export type AppSettings = { maxAlerts: number };
 
+/** Where a stream's alert notifications are published (ntfy server + that stream's topic). */
+export type NtfyTarget = { server: string; topic: string };
+
 export type ServerMessage =
   | { type: "error"; message: string }
-  | { type: "host-ok"; code: string; settings: AppSettings }
+  | { type: "host-ok"; code: string; settings: AppSettings; ntfy: NtfyTarget | null }
   | { type: "settings"; settings: AppSettings }
   | { type: "join-ok"; media: MediaState }
   | { type: "host-left" }

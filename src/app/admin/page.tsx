@@ -159,6 +159,11 @@ export default function AdminPage() {
                   <div className="mt-1 truncate text-sm text-muted">
                     <span className="font-medium text-fg">{room.host}</span> · live since {formatTime(room.createdAt)}
                   </div>
+                  {room.ntfyTopic && (
+                    <div className="mt-0.5 flex items-center gap-1 text-xs text-muted">
+                      <Icon name="bell" className="h-3 w-3 shrink-0" /> ntfy: <span className="break-all font-mono">{room.ntfyTopic}</span>
+                    </div>
+                  )}
                 </div>
                 <a href={`/?code=${room.code}&admin=1`} target="_blank" rel="noopener" className="btn btn-sm btn-primary shrink-0">
                   <Icon name="monitor" className="h-4 w-4" /> Watch

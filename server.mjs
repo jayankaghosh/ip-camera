@@ -49,7 +49,7 @@ const handle = app.getRequestHandler();
  * @typedef {import("ws").WebSocket} WS
  * @typedef {{ ws: WS, name: string, isAdmin: boolean, joinedAt: number, micOn: boolean }} Viewer
  * @typedef {{ audio: boolean, video: boolean, changedBy: string | null }} MediaState
- * @typedef {{ ws: WS, hostUsername: string, password: string | null, createdAt: number, media: MediaState, viewers: Map<string, Viewer> }} Room
+ * @typedef {{ ws: WS, hostUsername: string, ntfyTopic: string | null, password: string | null, createdAt: number, media: MediaState, viewers: Map<string, Viewer> }} Room
  * @type {Map<string, Room>} code -> room
  */
 const rooms = new Map();
@@ -62,6 +62,13 @@ const hostAccounts = createHostAccounts(dataDir);
 const settings = createSettings(dataDir);
 /** @type {Set<WS>} admin dashboards receiving live room updates */
 const adminSockets = new Set();
+
+// Each host account's ntfy topic: furcam-alert-<username>-<random>. The random part is created once
+// per account and saved, so it can't be guessed from the username and subscribers only subscribe once.
+// ntfy topics allow only letters, digits, "-" and "_", so the "." usernames may contain becomes "_".
+function ntfyTopicFor(username) {
+  return `furcam-alert-${username.toLowerCase().replace(/\./g, "_")}-${hostAccounts.ntfyKey(username)}`;
+}
 
 function generateCode() {
   let code;
@@ -302,6 +309,7 @@ function roomsSnapshot() {
   return [...rooms].map(([code, room]) => ({
     code,
     host: room.hostUsername,
+    ntfyTopic: room.ntfyTopic,
     password: room.password,
     createdAt: room.createdAt,
     media: room.media,
@@ -363,12 +371,14 @@ function onConnection(ws, req) {
       rooms.set(code, {
         ws,
         hostUsername: hostSession.username,
+        ntfyTopic: ntfyServer ? ntfyTopicFor(hostSession.username) : null,
         password: password || null,
         createdAt: Date.now(),
         media: { audio: true, video: true, changedBy: null },
         viewers: new Map(),
       });
-      send(ws, { type: "host-ok", code, settings: settings.get() });
+      const ntfy = ntfyServer ? { server: ntfyServer, topic: rooms.get(code).ntfyTopic } : null;
+      send(ws, { type: "host-ok", code, settings: settings.get(), ntfy });
       return notifyAdmins();
     }
 
@@ -482,6 +492,9 @@ await app.prepare();
 // Read after prepare(): Next loads .env / .env.local / .env.production into process.env there.
 const adminUsername = process.env.ADMIN_USERNAME || "";
 const adminPassword = process.env.ADMIN_PASSWORD || "";
+// Push notifications for alerts go to this ntfy server (hosts publish to it directly).
+// Set NTFY_URL to a self-hosted ntfy, or NTFY_URL=off to disable.
+const ntfyServer = process.env.NTFY_URL === "off" ? null : (process.env.NTFY_URL || "https://ntfy.sh").replace(/\/+$/, "");
 
 // Next's .env loader expands "$NAME" (even inside quotes) and treats an unquoted "#" as a comment,
 // which silently changes passwords. Compare against the raw file so that's reported, not guessed at.

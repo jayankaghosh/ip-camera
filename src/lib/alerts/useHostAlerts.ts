@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { createAlertSender, type ReceivedAlert } from "@/lib/alerts/channel";
 import { MeowDetector } from "@/lib/alerts/meow";
 import { MotionDetector } from "@/lib/alerts/motion";
+import { publishToNtfy } from "@/lib/alerts/ntfy";
+import type { NtfyTarget } from "@/lib/rtc";
 import { addAlert, listAlerts, pruneAlerts } from "@/lib/alerts/store";
 import type { AlertConfig, AlertRecord, AlertType } from "@/lib/alerts/types";
 
@@ -12,6 +14,7 @@ const COOLDOWN_MS = 15_000;
 const SNAPSHOT_WIDTH = 480;
 
 export type MeowStatus = "off" | "loading" | "listening" | "paused" | "error";
+export type NtfyStatus = { state: "idle" } | { state: "sent"; at: number } | { state: "failed"; at: number; error: string };
 
 function toView(r: AlertRecord): ReceivedAlert {
   return { id: r.id, type: r.type, ts: r.ts, streamCode: r.streamCode, detail: r.detail, image: r.image, url: r.image && URL.createObjectURL(r.image) };
@@ -41,6 +44,7 @@ export function useHostAlerts({
   micOn,
   videoRef,
   getMicTrack,
+  ntfy,
 }: {
   account: string | null | undefined;
   config: AlertConfig;
@@ -50,19 +54,22 @@ export function useHostAlerts({
   micOn: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   getMicTrack: () => MediaStreamTrack | null;
+  /** Where to publish push notifications; null disables them. */
+  ntfy: NtfyTarget | null;
 }) {
   const [alerts, setAlerts] = useState<ReceivedAlert[]>([]);
   const [meowReady, setMeowReady] = useState(false);
   const [meowError, setMeowError] = useState<string | null>(null);
+  const [ntfyStatus, setNtfyStatus] = useState<NtfyStatus>({ state: "idle" });
 
   // Latest values for the async callbacks below.
   const recordsRef = useRef<AlertRecord[]>([]);
   const sendersRef = useRef(new Set<ReturnType<typeof createAlertSender>>());
   const lastFiredRef = useRef(new Map<AlertType, number>());
   const meowRef = useRef<MeowDetector | null>(null);
-  const latest = useRef({ account, streamCode, maxAlerts, getMicTrack });
+  const latest = useRef({ account, streamCode, maxAlerts, getMicTrack, ntfy });
   useEffect(() => {
-    latest.current = { account, streamCode, maxAlerts, getMicTrack };
+    latest.current = { account, streamCode, maxAlerts, getMicTrack, ntfy };
   });
 
   function apply(records: AlertRecord[]) {
@@ -101,7 +108,7 @@ export function useHostAlerts({
   }, [account, live, maxAlerts]);
 
   async function fire(type: AlertType, detail: string) {
-    const { account, streamCode, maxAlerts } = latest.current;
+    const { account, streamCode, maxAlerts, ntfy } = latest.current;
     const now = Date.now();
     if (!account || !streamCode || now - (lastFiredRef.current.get(type) ?? 0) < COOLDOWN_MS) return;
     lastFiredRef.current.set(type, now);
@@ -112,6 +119,11 @@ export function useHostAlerts({
     for (const s of sendersRef.current) {
       s.sendAlert(record);
       s.sendRemoved(removed);
+    }
+    if (ntfy) {
+      publishToNtfy(ntfy.server, ntfy.topic, record)
+        .then(() => setNtfyStatus({ state: "sent", at: Date.now() }))
+        .catch((err) => setNtfyStatus({ state: "failed", at: Date.now(), error: err instanceof Error ? err.message : String(err) }));
     }
   }
 
@@ -159,6 +171,7 @@ export function useHostAlerts({
     alerts,
     meowStatus,
     meowError,
+    ntfyStatus,
     /** Hook up a new viewer's data channel: history once it opens, then live alerts. */
     attach(channel: RTCDataChannel) {
       const sender = createAlertSender(channel);

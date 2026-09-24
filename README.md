@@ -33,6 +33,14 @@ Each alert has a type, time, stream code and a JPEG snapshot, and is saved **on 
 100). Viewers receive all saved alerts when they join and new ones live, over a WebRTC data channel,
 and can **Export** everything as a ZIP (snapshots + `alerts.csv` + `alerts.json`).
 
+**Phone notifications (ntfy)**: each host account has one ntfy topic,
+`furcam-alert-<username>-<random>` (e.g. `furcam-alert-catcam-k7xq2mpv`; dots become `_`), shown to
+the host and admin. The random part is created once per account and saved in `data/hosts.json`, so the
+topic can't be guessed from the username and stays the same across streams: subscribe once. Install the [ntfy](https://ntfy.sh) app
+and subscribe to it; each alert is pushed with its snapshot, and tapping it opens the stream. The host
+device publishes directly to ntfy. Set `NTFY_URL` in `.env` to use a self-hosted ntfy server, or
+`NTFY_URL=off` to disable. Topics on the public ntfy.sh are readable by anyone who knows the name.
+
 **Mic/camera off really means off**: the host's device is released (camera light goes out, no
 encoding, nothing sent), which saves battery. The connections stay open, so switching back on
 resumes within a second without reconnecting.
