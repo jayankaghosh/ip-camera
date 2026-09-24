@@ -7,7 +7,7 @@ export type RoomSummary = {
   password: string | null;
   createdAt: number;
   media: MediaState;
-  viewers: { name: string; isAdmin: boolean; joinedAt: number }[];
+  viewers: { name: string; isAdmin: boolean; joinedAt: number; micOn: boolean }[];
 };
 
 export type ServerMessage =
@@ -18,13 +18,15 @@ export type ServerMessage =
   | { type: "kicked" }
   | { type: "viewer-joined"; viewerId: string; name: string; isAdmin: boolean }
   | { type: "viewer-left"; viewerId: string }
+  | { type: "viewer-mic"; viewerId: string; enabled: boolean }
   | { type: "set-media"; kind: MediaKind; enabled: boolean; by?: string }
   | { type: "media-state"; media: MediaState }
   | { type: "rooms"; rooms: RoomSummary[] }
   | { type: "signal"; from?: string; data: SignalData };
 
 export type SignalData =
-  | { sdp: RTCSessionDescriptionInit }
+  // talkMid: the host's offer names the viewer→host audio channel so the viewer can find it.
+  | { sdp: RTCSessionDescriptionInit; talkMid?: string | null }
   | { candidate: RTCIceCandidateInit };
 
 // Override with NEXT_PUBLIC_ICE_SERVERS='[{"urls":"turn:...","username":"...","credential":"..."}]'

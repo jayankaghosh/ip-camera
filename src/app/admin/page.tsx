@@ -159,6 +159,7 @@ export default function AdminPage() {
                         <span className="truncate">
                           {v.name}
                           {v.isAdmin && <span className="ml-1.5 text-[10px] uppercase text-amber-600 dark:text-amber-400">admin</span>}
+                          {v.micOn && <span className="ml-1.5 text-[10px] uppercase text-green-600 dark:text-green-400">mic on</span>}
                         </span>
                         <span className="text-xs text-neutral-500">{formatTime(v.joinedAt)}</span>
                       </li>

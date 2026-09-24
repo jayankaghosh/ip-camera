@@ -27,10 +27,16 @@ function Viewer() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [media, setMedia] = useState<MediaState>({ audio: true, video: true, changedBy: null });
   const [pending, setPending] = useState<MediaKind | null>(null);
+  const [micOn, setMicOn] = useState(false);
+  const [micBusy, setMicBusy] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  // Sender of the viewer → host audio channel, and the viewer's own mic track while talking.
+  const talkSenderRef = useRef<RTCRtpSender | null>(null);
+  const micTrackRef = useRef<MediaStreamTrack | null>(null);
 
   function stopAll() {
     wsRef.current?.close();
@@ -38,6 +44,9 @@ function Viewer() {
     pcRef.current?.close();
     pcRef.current = null;
     remoteStreamRef.current = null;
+    micTrackRef.current?.stop();
+    micTrackRef.current = null;
+    talkSenderRef.current = null;
   }
 
   useEffect(() => stopAll, []);
@@ -47,6 +56,8 @@ function Viewer() {
     setError(message);
     setStats(null);
     setPending(null);
+    setMicOn(false);
+    setMicError(null);
     setStatus("login");
   }
 
@@ -124,6 +135,13 @@ function Viewer() {
           };
           enqueue(async () => {
             await pc.setRemoteDescription(data.sdp);
+            // The host offered a receive-only audio channel for our voice: answer it as send-only.
+            // It sends nothing until the mic is switched on (replaceTrack), so no renegotiation later.
+            const talk = pc.getTransceivers().find((t) => data.talkMid != null && t.mid === data.talkMid);
+            if (talk) {
+              talk.direction = "sendonly";
+              talkSenderRef.current = talk.sender;
+            }
             await pc.setLocalDescription(await pc.createAnswer());
             ws.send(JSON.stringify({ type: "signal", data: { sdp: pc.localDescription } }));
           });
@@ -138,6 +156,38 @@ function Viewer() {
       ws.send(JSON.stringify({ type: "join", name, code, password, asAdmin }));
     } catch (err) {
       fail((err as Error).message);
+    }
+  }
+
+  // The viewer's own mic: while on, the host hears them. Off releases the mic completely.
+  async function toggleMyMic() {
+    const sender = talkSenderRef.current;
+    if (!sender) return setMicError("This host doesn't support talking back yet.");
+    setMicBusy(true);
+    setMicError(null);
+    try {
+      if (micOn) {
+        await sender.replaceTrack(null);
+        micTrackRef.current?.stop();
+        micTrackRef.current = null;
+        setMicOn(false);
+        wsRef.current?.send(JSON.stringify({ type: "viewer-mic", enabled: false }));
+      } else {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        });
+        const [track] = stream.getAudioTracks();
+        if (!talkSenderRef.current) return void track.stop(); // left meanwhile
+        micTrackRef.current = track;
+        await sender.replaceTrack(track);
+        setMicOn(true);
+        wsRef.current?.send(JSON.stringify({ type: "viewer-mic", enabled: true }));
+      }
+    } catch (err) {
+      const denied = err instanceof DOMException && err.name === "NotAllowedError";
+      setMicError(denied ? "Microphone permission was denied." : "Couldn't turn on your microphone.");
+    } finally {
+      setMicBusy(false);
     }
   }
 
@@ -213,13 +263,32 @@ function Viewer() {
           </button>
         )}
       </div>
-      <div className="flex items-center gap-3">
-        <MediaButton kind="audio" enabled={media.audio} disabled={pending !== null} onToggle={() => toggle("audio")} />
-        <MediaButton kind="video" enabled={media.video} disabled={pending !== null} onToggle={() => toggle("video")} />
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        <div className="flex items-center gap-2" role="group" aria-label="Host device">
+          <MediaButton kind="audio" enabled={media.audio} disabled={pending !== null} onToggle={() => toggle("audio")} />
+          <MediaButton kind="video" enabled={media.video} disabled={pending !== null} onToggle={() => toggle("video")} />
+        </div>
+        <span className="mx-1 h-8 w-px bg-neutral-300 dark:bg-neutral-700" />
+        <button
+          onClick={toggleMyMic}
+          disabled={micBusy}
+          aria-pressed={micOn}
+          className={`flex h-12 items-center gap-2 rounded-full px-5 font-medium transition-colors disabled:opacity-50 ${
+            micOn ? "bg-green-600 text-white hover:bg-green-700" : "bg-blue-600 text-white hover:bg-blue-700"
+          }`}
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <rect x="9" y="3" width="6" height="11" rx="3" />
+            <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+          </svg>
+          {micOn ? "Mute me" : "Talk"}
+        </button>
         <button
           onClick={() => {
             stopAll();
             setStats(null);
+            setMicOn(false);
+            setMicError(null);
             setStatus("login");
           }}
           className="rounded-lg bg-neutral-800 text-white px-6 py-3 hover:bg-neutral-700"
@@ -227,7 +296,11 @@ function Viewer() {
           Leave
         </button>
       </div>
-      <p className="text-xs text-neutral-500">The mic and camera buttons switch the host&apos;s device on or off for everyone.</p>
+      {micError && <p className="text-sm text-red-500">{micError}</p>}
+      <p className="max-w-md text-center text-xs text-neutral-500">
+        The round buttons switch the host&apos;s mic and camera for everyone. <strong>Talk</strong> turns on your own mic
+        so the host can hear you{micOn ? " — the host can hear you now" : ""}.
+      </p>
     </main>
   );
 }

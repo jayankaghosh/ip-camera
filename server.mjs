@@ -5,7 +5,7 @@
 // to each viewer over WebRTC (AV1/VP9 video + Opus audio, DTLS-SRTP encrypted).
 // This server hands each host a unique room code, admits viewers who present a
 // valid code (and password, if the host set one), relays SDP offers/answers and
-// ICE candidates, and relays mic/camera and kick commands.
+// ICE candidates, and relays mic/camera, viewer-mic and kick commands.
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { existsSync, readFileSync } from "node:fs";
@@ -39,7 +39,7 @@ const handle = app.getRequestHandler();
 
 /**
  * @typedef {import("ws").WebSocket} WS
- * @typedef {{ ws: WS, name: string, isAdmin: boolean, joinedAt: number }} Viewer
+ * @typedef {{ ws: WS, name: string, isAdmin: boolean, joinedAt: number, micOn: boolean }} Viewer
  * @typedef {{ audio: boolean, video: boolean, changedBy: string | null }} MediaState
  * @typedef {{ ws: WS, password: string | null, createdAt: number, media: MediaState, viewers: Map<string, Viewer> }} Room
  * @type {Map<string, Room>} code -> room
@@ -193,7 +193,12 @@ function roomsSnapshot() {
     password: room.password,
     createdAt: room.createdAt,
     media: room.media,
-    viewers: [...room.viewers.values()].map((v) => ({ name: v.name, isAdmin: v.isAdmin, joinedAt: v.joinedAt })),
+    viewers: [...room.viewers.values()].map((v) => ({
+      name: v.name,
+      isAdmin: v.isAdmin,
+      joinedAt: v.joinedAt,
+      micOn: v.micOn,
+    })),
   }));
 }
 
@@ -277,7 +282,7 @@ function onConnection(ws, req) {
       role = "viewer";
       code = requested;
       viewerId = randomUUID();
-      room.viewers.set(viewerId, { ws, name, isAdmin: asAdmin, joinedAt: Date.now() });
+      room.viewers.set(viewerId, { ws, name, isAdmin: asAdmin, joinedAt: Date.now(), micOn: false });
       send(ws, { type: "join-ok", media: room.media });
       send(room.ws, { type: "viewer-joined", viewerId, name, isAdmin: asAdmin });
       return notifyAdmins();
@@ -302,6 +307,15 @@ function onConnection(ws, req) {
         send(room.ws, { type: "signal", from: viewerId, data: msg.data });
       }
       return;
+    }
+
+    // A viewer switched their own mic (talking to the host) on or off.
+    if (msg.type === "viewer-mic" && role === "viewer") {
+      const viewer = room.viewers.get(viewerId);
+      if (!viewer) return;
+      viewer.micOn = msg.enabled === true;
+      send(room.ws, { type: "viewer-mic", viewerId, enabled: viewer.micOn });
+      return notifyAdmins();
     }
 
     // A viewer asks the host device to turn its mic/camera on or off; the host applies it.

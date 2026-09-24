@@ -24,3 +24,16 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Speaking indicator bars (TalkIndicator) */
+@keyframes talk-bar {
+  0%, 100% { height: 30%; }
+  50% { height: 100%; }
+}
+.talk-bar {
+  height: 30%;
+  animation: talk-bar 0.7s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .talk-bar { animation: none; height: 70%; }
+}

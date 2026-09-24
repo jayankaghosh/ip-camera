@@ -6,7 +6,9 @@ Turn one device into a live camera; watch it from another with a 6-character cod
   (e.g. `J74TXD`). The host sees everyone watching, can remove any viewer, and can turn their own
   mic/camera off and on.
 - **Viewer** enters their name, the code, and the password (if the host set one) and gets the live
-  video + audio. Viewers can also turn the host's mic/camera off and on.
+  video + audio. Viewers can also turn the host's mic/camera off and on, and press **Talk** to switch on
+  their own mic so the host hears them; the host sees a mic icon beside their name, which turns into
+  animated bars while they speak.
 - **Admin** (`/admin`, login from `.env`) sees every live stream with its code, password, mic/camera
   state and viewers, and can watch any stream without its password. The host sees admins as
   "Admin" in their viewer list.

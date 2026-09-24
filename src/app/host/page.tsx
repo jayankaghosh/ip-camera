@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MediaButton } from "@/components/MediaButton";
+import { TalkIndicator } from "@/components/TalkIndicator";
 import {
   createQueue,
   openSignaling,
@@ -12,8 +13,20 @@ import {
   type ServerMessage,
 } from "@/lib/rtc";
 
-type Peer = { pc: RTCPeerConnection; enqueue: ReturnType<typeof createQueue>; senders: Record<MediaKind, RTCRtpSender> };
-type ViewerInfo = { id: string; name: string; isAdmin: boolean; joinedAt: number };
+type Peer = {
+  pc: RTCPeerConnection;
+  enqueue: ReturnType<typeof createQueue>;
+  senders: Record<MediaKind, RTCRtpSender>;
+  /** Viewer → host audio (the viewer's own mic). Silent until they switch it on. */
+  talk: RTCRtpTransceiver;
+  speaker: HTMLAudioElement;
+};
+type ViewerInfo = { id: string; name: string; isAdmin: boolean; joinedAt: number; micOn: boolean };
+
+// A viewer counts as speaking while their mic level is above this (0–1), plus a short hold so the
+// indicator doesn't flicker between words.
+const SPEAKING_LEVEL = 0.03;
+const SPEAKING_HOLD_MS = 700;
 
 const KINDS: MediaKind[] = ["audio", "video"];
 const CONSTRAINTS: Record<MediaKind, MediaTrackConstraints> = {
@@ -30,6 +43,9 @@ export default function HostPage() {
   const [copied, setCopied] = useState(false);
   const [viewers, setViewers] = useState<ViewerInfo[]>([]);
   const [media, setMedia] = useState<MediaState>({ audio: true, video: true, changedBy: null });
+  const [speaking, setSpeaking] = useState<ReadonlySet<string>>(new Set());
+  // Set if the browser's autoplay policy stopped viewer voices from playing; one click fixes it.
+  const [voicesBlocked, setVoicesBlocked] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   // Always the same MediaStream object: tracks are added/removed as the mic/camera turn on and off,
   // and every peer's transceivers stay tied to it, so turning a device back on needs no renegotiation.
@@ -42,7 +58,10 @@ export default function HostPage() {
   function stopAll() {
     wsRef.current?.close();
     wsRef.current = null;
-    for (const { pc } of peersRef.current.values()) pc.close();
+    for (const { pc, speaker } of peersRef.current.values()) {
+      pc.close();
+      speaker.srcObject = null;
+    }
     peersRef.current.clear();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
@@ -61,6 +80,27 @@ export default function HostPage() {
   useEffect(() => {
     if (status === "live") refreshPreview();
   }, [status]);
+
+  // Poll each viewer's incoming mic level to show who is speaking.
+  const micOnIds = viewers.filter((v) => v.micOn).map((v) => v.id).join(",");
+  useEffect(() => {
+    const ids = micOnIds ? micOnIds.split(",") : [];
+    const lastLoud = new Map<string, number>();
+    const timer = setInterval(() => {
+      const now = performance.now();
+      const next = new Set<string>();
+      for (const id of ids) {
+        const level = peersRef.current.get(id)?.talk.receiver.getSynchronizationSources?.()[0]?.audioLevel ?? 0;
+        if (level > SPEAKING_LEVEL) lastLoud.set(id, now);
+        if (now - (lastLoud.get(id) ?? -Infinity) < SPEAKING_HOLD_MS) next.add(id);
+      }
+      setSpeaking((prev) => (prev.size === next.size && [...next].every((id) => prev.has(id)) ? prev : next));
+    }, 150);
+    return () => {
+      clearInterval(timer);
+      setSpeaking(new Set());
+    };
+  }, [micOnIds]);
 
   function trackOf(kind: MediaKind) {
     return streamRef.current?.getTracks().find((t) => t.kind === kind) ?? null;
@@ -106,12 +146,14 @@ export default function HostPage() {
   }
 
   function removePeer(viewerId: string) {
-    peersRef.current.get(viewerId)?.pc.close();
+    const peer = peersRef.current.get(viewerId);
+    peer?.pc.close();
+    if (peer) peer.speaker.srcObject = null;
     peersRef.current.delete(viewerId);
     setViewers((v) => v.filter((x) => x.id !== viewerId));
   }
 
-  function addViewer(ws: WebSocket, viewer: Omit<ViewerInfo, "joinedAt">) {
+  function addViewer(ws: WebSocket, viewer: Omit<ViewerInfo, "joinedAt" | "micOn">) {
     const stream = streamRef.current!;
     const pc = new RTCPeerConnection(rtcConfig);
     const enqueue = createQueue();
@@ -122,8 +164,15 @@ export default function HostPage() {
       preferEfficientCodecs(transceiver, kind);
       senders[kind] = transceiver.sender;
     }
-    peersRef.current.set(viewer.id, { pc, enqueue, senders });
-    setViewers((v) => [...v, { ...viewer, joinedAt: Date.now() }]);
+    // Receive-only channel for the viewer's voice. Its track exists right away and simply stays
+    // silent until the viewer switches their mic on, so talking never needs renegotiation.
+    const talk = pc.addTransceiver("audio", { direction: "recvonly" });
+    const speaker = new Audio();
+    speaker.autoplay = true;
+    speaker.srcObject = new MediaStream([talk.receiver.track]);
+    speaker.play().catch(() => setVoicesBlocked(true)); // normally allowed: the host clicked "Start camera"
+    peersRef.current.set(viewer.id, { pc, enqueue, senders, talk, speaker });
+    setViewers((v) => [...v, { ...viewer, joinedAt: Date.now(), micOn: false }]);
 
     pc.onicecandidate = (e) => {
       if (e.candidate) ws.send(JSON.stringify({ type: "signal", to: viewer.id, data: { candidate: e.candidate } }));
@@ -134,7 +183,9 @@ export default function HostPage() {
 
     enqueue(async () => {
       await pc.setLocalDescription(await pc.createOffer());
-      ws.send(JSON.stringify({ type: "signal", to: viewer.id, data: { sdp: pc.localDescription } }));
+      ws.send(
+        JSON.stringify({ type: "signal", to: viewer.id, data: { sdp: pc.localDescription, talkMid: talk.mid } }),
+      );
     });
   }
 
@@ -143,6 +194,8 @@ export default function HostPage() {
     if (!ws) return;
     if (msg.type === "viewer-joined") {
       addViewer(ws, { id: msg.viewerId, name: msg.name, isAdmin: msg.isAdmin });
+    } else if (msg.type === "viewer-mic") {
+      setViewers((v) => v.map((x) => (x.id === msg.viewerId ? { ...x, micOn: msg.enabled } : x)));
     } else if (msg.type === "viewer-left") {
       removePeer(msg.viewerId);
     } else if (msg.type === "set-media") {
@@ -302,6 +355,17 @@ export default function HostPage() {
           <h2 className="text-sm font-medium">
             Watching now <span className="text-neutral-500">({viewers.length})</span>
           </h2>
+          {voicesBlocked && (
+            <button
+              onClick={() => {
+                for (const { speaker } of peersRef.current.values()) speaker.play().catch(() => {});
+                setVoicesBlocked(false);
+              }}
+              className="mt-2 w-full rounded-lg bg-amber-500 px-3 py-2 text-sm font-medium text-black hover:bg-amber-400"
+            >
+              Click to hear viewers
+            </button>
+          )}
           {viewers.length === 0 ? (
             <p className="mt-2 text-sm text-neutral-500">No one yet.</p>
           ) : (
@@ -309,7 +373,10 @@ export default function HostPage() {
               {viewers.map((v) => (
                 <li key={v.id} className="group flex items-center justify-between gap-2 text-sm py-1">
                   <span className="flex min-w-0 items-center gap-2">
-                    <span className="truncate">{v.name}</span>
+                    <span className={`truncate ${speaking.has(v.id) ? "font-medium text-green-600 dark:text-green-400" : ""}`}>
+                      {v.name}
+                    </span>
+                    <TalkIndicator micOn={v.micOn} speaking={speaking.has(v.id)} />
                     {v.isAdmin && (
                       <span className="shrink-0 rounded bg-amber-500/20 px-1.5 text-[10px] font-medium uppercase text-amber-600 dark:text-amber-400">
                         admin
