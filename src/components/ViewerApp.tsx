@@ -1,26 +1,22 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { BackButton } from "@/components/BackButton";
 import { JoinForm } from "@/components/JoinForm";
 import { MediaButton } from "@/components/MediaButton";
 import { createQueue, openSignaling, rtcConfig, type MediaKind, type MediaState } from "@/lib/rtc";
 
 type Stats = { codec: string; resolution: string; fps: number; kbps: number };
 
-export default function ViewPage() {
-  return (
-    <Suspense fallback={null}>
-      <Viewer />
-    </Suspense>
-  );
-}
-
-function Viewer() {
-  const params = useSearchParams();
-  const initialCode = (params.get("code") ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
-  const asAdmin = params.get("admin") === "1" && initialCode.length === 6;
-
+export function ViewerApp({
+  initialCode,
+  asAdmin,
+  onBack,
+}: {
+  initialCode: string;
+  asAdmin: boolean;
+  onBack: () => void;
+}) {
   const [status, setStatus] = useState<"login" | "joining" | "connecting" | "watching">("login");
   const [error, setError] = useState<string | null>(null);
   const [needsTap, setNeedsTap] = useState(false);
@@ -200,7 +196,8 @@ function Viewer() {
 
   if (status === "login" || status === "joining") {
     return (
-      <main className="flex flex-1 items-center justify-center p-6">
+      <main className="flex flex-1 flex-col items-center justify-center gap-6 p-6">
+        {!asAdmin && <BackButton onClick={onBack} />}
         {asAdmin ? (
           <div className="w-full max-w-sm flex flex-col gap-4">
             <div>

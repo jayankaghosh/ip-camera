@@ -1,5 +1,5 @@
 // Custom Next.js server that also hosts the WebRTC signaling WebSocket at /ws
-// and the small admin session API at /api/admin/*.
+// and the admin / host-account API at /api/admin/* and /api/host/*.
 //
 // Media never passes through this server: the host's browser streams directly
 // to each viewer over WebRTC (AV1/VP9 video + Opus audio, DTLS-SRTP encrypted).
@@ -12,6 +12,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import next from "next";
 import { WebSocketServer } from "ws";
+import { join } from "node:path";
+import { createHostAccounts } from "./server/host-accounts.mjs";
 
 const dev = process.env.NODE_ENV !== "production";
 
@@ -31,8 +33,12 @@ const MAX_NAME_LENGTH = 40;
 const MAX_PASSWORD_LENGTH = 64;
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_MS = 60_000;
-const ADMIN_COOKIE = "ipcam_admin";
-const ADMIN_SESSION_MS = 12 * 60 * 60 * 1000;
+const HOUR = 60 * 60 * 1000;
+const SESSIONS = {
+  admin: { cookie: "ipcam_admin", ms: 12 * HOUR },
+  // Long-lived so a phone used as a fixed camera stays logged in.
+  host: { cookie: "ipcam_host", ms: 30 * 24 * HOUR },
+};
 
 const app = next({ dev });
 const handle = app.getRequestHandler();
@@ -41,14 +47,15 @@ const handle = app.getRequestHandler();
  * @typedef {import("ws").WebSocket} WS
  * @typedef {{ ws: WS, name: string, isAdmin: boolean, joinedAt: number, micOn: boolean }} Viewer
  * @typedef {{ audio: boolean, video: boolean, changedBy: string | null }} MediaState
- * @typedef {{ ws: WS, password: string | null, createdAt: number, media: MediaState, viewers: Map<string, Viewer> }} Room
+ * @typedef {{ ws: WS, hostUsername: string, password: string | null, createdAt: number, media: MediaState, viewers: Map<string, Viewer> }} Room
  * @type {Map<string, Room>} code -> room
  */
 const rooms = new Map();
 /** @type {Map<string, { count: number, until: number }>} ip -> failed attempts */
 const failures = new Map();
-/** @type {Map<string, number>} admin session token -> expiry */
-const adminSessions = new Map();
+/** @type {Map<string, { kind: "admin" | "host", username: string, expiry: number }>} session token -> session */
+const sessions = new Map();
+const hostAccounts = createHostAccounts(process.env.DATA_DIR || join(process.cwd(), "data"));
 /** @type {Set<WS>} admin dashboards receiving live room updates */
 const adminSockets = new Set();
 
@@ -89,7 +96,7 @@ function recordFailure(key) {
   failures.set(key, f);
 }
 
-// ---------- Admin sessions ----------
+// ---------- Sessions (admin and host accounts) ----------
 
 function parseCookies(header = "") {
   return Object.fromEntries(
@@ -106,25 +113,55 @@ function parseCookies(header = "") {
   );
 }
 
-function isAdminRequest(req) {
-  const token = parseCookies(req.headers.cookie)[ADMIN_COOKIE];
-  const expiry = token && adminSessions.get(token);
-  if (!expiry) return false;
-  if (expiry < Date.now()) {
-    adminSessions.delete(token);
-    return false;
+/** @returns {{ token: string, username: string } | null} */
+function getSession(req, kind) {
+  const token = parseCookies(req.headers.cookie)[SESSIONS[kind].cookie];
+  const session = token && sessions.get(token);
+  if (!session || session.kind !== kind) return null;
+  if (session.expiry < Date.now()) {
+    sessions.delete(token);
+    return null;
   }
-  return true;
+  return { token, username: session.username };
 }
 
-function adminCookie(req, token, maxAgeSeconds) {
+function sessionCookie(req, kind, token, maxAgeSeconds) {
   const secure = useHttps || (trustProxy && req.headers["x-forwarded-proto"] === "https");
-  return `${ADMIN_COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSeconds}${secure ? "; Secure" : ""}`;
+  return `${SESSIONS[kind].cookie}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSeconds}${secure ? "; Secure" : ""}`;
 }
+
+function startSession(req, kind, username) {
+  const token = randomBytes(32).toString("base64url");
+  sessions.set(token, { kind, username, expiry: Date.now() + SESSIONS[kind].ms });
+  return sessionCookie(req, kind, token, SESSIONS[kind].ms / 1000);
+}
+
+function endSession(req, kind) {
+  const session = getSession(req, kind);
+  if (session) sessions.delete(session.token);
+  return sessionCookie(req, kind, "", 0);
+}
+
+/** Logs a host out everywhere and ends their live streams (account deleted, renamed or re-passworded). */
+function revokeHost(username, message) {
+  const key = username.toLowerCase();
+  for (const [token, session] of sessions) {
+    if (session.kind === "host" && session.username.toLowerCase() === key) sessions.delete(token);
+  }
+  for (const [code, room] of rooms) {
+    if (room.hostUsername.toLowerCase() !== key) continue;
+    send(room.ws, { type: "host-revoked", message });
+    room.ws.close();
+    closeRoom(code);
+  }
+}
+
+// ---------- HTTP API ----------
 
 function json(res, status, body, headers = {}) {
   res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store", ...headers });
   res.end(JSON.stringify(body));
+  return true;
 }
 
 function readJson(req) {
@@ -144,25 +181,33 @@ function readJson(req) {
   });
 }
 
-/** Returns true if the request was an admin API call and has been answered. */
-async function handleAdminApi(req, res) {
-  const path = req.url?.split("?")[0];
-  if (path === "/api/admin/session" && req.method === "GET") {
-    // Never 401: that status belongs to nginx's Basic auth, and browsers may drop the saved
-    // nginx login when the app answers with it.
-    json(res, 200, isAdminRequest(req) ? { loggedIn: true, username: adminUsername } : { loggedIn: false });
-    return true;
+function hostList() {
+  const live = new Map();
+  for (const room of rooms.values()) {
+    const key = room.hostUsername.toLowerCase();
+    live.set(key, (live.get(key) ?? 0) + 1);
   }
-  if (path === "/api/admin/login" && req.method === "POST") {
+  return hostAccounts.list().map((h) => ({ ...h, liveStreams: live.get(h.username.toLowerCase()) ?? 0 }));
+}
+
+// Status codes: never 401. That status belongs to nginx's Basic auth, and browsers may drop the
+// saved nginx login when the app answers with it. "Not logged in" is 200 or 403 instead.
+async function handleApi(req, res) {
+  const url = new URL(req.url ?? "/", "http://x");
+  const path = url.pathname;
+  const method = req.method ?? "GET";
+  if (method !== "GET" && !isSameOrigin(req)) return json(res, 403, { error: "Cross-site request refused." });
+
+  // --- Admin ---
+  if (path === "/api/admin/session" && method === "GET") {
+    return json(res, 200, getSession(req, "admin") ? { loggedIn: true, username: adminUsername } : { loggedIn: false });
+  }
+  if (path === "/api/admin/login" && method === "POST") {
     if (!adminUsername || !adminPassword) {
-      json(res, 503, { error: "Admin is not configured. Set ADMIN_USERNAME and ADMIN_PASSWORD in .env." });
-      return true;
+      return json(res, 503, { error: "Admin is not configured. Set ADMIN_USERNAME and ADMIN_PASSWORD in .env." });
     }
     const lockKey = `admin:${clientIp(req)}`;
-    if (isLockedOut(lockKey)) {
-      json(res, 429, { error: "Too many wrong attempts. Try again in a minute." });
-      return true;
-    }
+    if (isLockedOut(lockKey)) return json(res, 429, { error: "Too many wrong attempts. Try again in a minute." });
     const { username, password } = await readJson(req);
     // Evaluate both so a wrong username takes as long as a wrong password.
     const userOk = safeEqual(String(username ?? ""), adminUsername);
@@ -170,26 +215,76 @@ async function handleAdminApi(req, res) {
     if (!userOk || !passOk) {
       recordFailure(lockKey);
       console.warn(`> Admin login failed from ${clientIp(req)}: wrong ${userOk ? "password" : "username"}.`);
-      json(res, 403, { error: "Wrong username or password." });
-      return true;
+      return json(res, 403, { error: "Wrong username or password." });
     }
     failures.delete(lockKey);
-    const token = randomBytes(32).toString("base64url");
-    adminSessions.set(token, Date.now() + ADMIN_SESSION_MS);
-    json(res, 200, { username: adminUsername }, { "Set-Cookie": adminCookie(req, token, ADMIN_SESSION_MS / 1000) });
-    return true;
+    return json(res, 200, { username: adminUsername }, { "Set-Cookie": startSession(req, "admin", adminUsername) });
   }
-  if (path === "/api/admin/logout" && req.method === "POST") {
-    adminSessions.delete(parseCookies(req.headers.cookie)[ADMIN_COOKIE]);
-    json(res, 200, { ok: true }, { "Set-Cookie": adminCookie(req, "", 0) });
-    return true;
+  if (path === "/api/admin/logout" && method === "POST") {
+    return json(res, 200, { ok: true }, { "Set-Cookie": endSession(req, "admin") });
   }
-  return false;
+
+  // --- Admin: manage host accounts ---
+  if (path === "/api/admin/hosts" || path.startsWith("/api/admin/hosts/")) {
+    if (!getSession(req, "admin")) return json(res, 403, { error: "Admin session expired. Log in again." });
+    const target = path.startsWith("/api/admin/hosts/") ? decodeURIComponent(path.slice("/api/admin/hosts/".length)) : null;
+
+    if (!target && method === "GET") return json(res, 200, { hosts: hostList() });
+    if (!target && method === "POST") {
+      const { username, password } = await readJson(req);
+      const result = await hostAccounts.add(String(username ?? "").trim(), password);
+      if (result.error) return json(res, 400, { error: result.error });
+      notifyAdmins();
+      return json(res, 200, { hosts: hostList() });
+    }
+    if (target && method === "PATCH") {
+      const body = await readJson(req);
+      const newUsername = typeof body.newUsername === "string" ? body.newUsername.trim() : undefined;
+      const password = typeof body.password === "string" && body.password !== "" ? body.password : undefined;
+      const result = await hostAccounts.update(target, { newUsername, password });
+      if (result.error) return json(res, 400, { error: result.error });
+      revokeHost(result.previousUsername, "Your host account was changed by the admin. Please log in again.");
+      return json(res, 200, { hosts: hostList() });
+    }
+    if (target && method === "DELETE") {
+      const removed = hostAccounts.remove(target);
+      if (!removed) return json(res, 404, { error: "That host no longer exists." });
+      revokeHost(removed, "Your host account was deleted by the admin.");
+      notifyAdmins();
+      return json(res, 200, { hosts: hostList() });
+    }
+    return json(res, 405, { error: "Method not allowed." });
+  }
+
+  // --- Host accounts: log in to broadcast ---
+  if (path === "/api/host/session" && method === "GET") {
+    const session = getSession(req, "host");
+    const valid = session && hostAccounts.exists(session.username);
+    return json(res, 200, valid ? { loggedIn: true, username: session.username } : { loggedIn: false });
+  }
+  if (path === "/api/host/login" && method === "POST") {
+    const lockKey = `host:${clientIp(req)}`;
+    if (isLockedOut(lockKey)) return json(res, 429, { error: "Too many wrong attempts. Try again in a minute." });
+    const { username, password } = await readJson(req);
+    const account = await hostAccounts.verify(String(username ?? "").trim(), String(password ?? ""));
+    if (!account) {
+      recordFailure(lockKey);
+      return json(res, 403, { error: "Wrong username or password." });
+    }
+    failures.delete(lockKey);
+    return json(res, 200, { username: account }, { "Set-Cookie": startSession(req, "host", account) });
+  }
+  if (path === "/api/host/logout" && method === "POST") {
+    return json(res, 200, { ok: true }, { "Set-Cookie": endSession(req, "host") });
+  }
+
+  return null; // not an API route: let Next.js handle it
 }
 
 function roomsSnapshot() {
   return [...rooms].map(([code, room]) => ({
     code,
+    host: room.hostUsername,
     password: room.password,
     createdAt: room.createdAt,
     media: room.media,
@@ -223,7 +318,8 @@ function closeRoom(code) {
 
 function onConnection(ws, req) {
   const ip = clientIp(req);
-  const isAdmin = isAdminRequest(req);
+  const isAdmin = !!getSession(req, "admin");
+  const hostSession = getSession(req, "host");
   /** @type {"host" | "viewer" | "admin" | null} */
   let role = null;
   /** @type {string | null} */
@@ -240,11 +336,16 @@ function onConnection(ws, req) {
     }
 
     if (role === null && msg.type === "host") {
+      // Re-check now: the account or session may have been revoked since this socket connected.
+      if (!hostSession || !sessions.has(hostSession.token) || !hostAccounts.exists(hostSession.username)) {
+        return send(ws, { type: "host-revoked", message: "Please log in with your host account." });
+      }
       const password = String(msg.password ?? "").slice(0, MAX_PASSWORD_LENGTH);
       role = "host";
       code = generateCode();
       rooms.set(code, {
         ws,
+        hostUsername: hostSession.username,
         password: password || null,
         createdAt: Date.now(),
         media: { audio: true, video: true, changedBy: null },
@@ -388,7 +489,7 @@ warnIfEnvValueChanged("ADMIN_USERNAME", adminUsername);
 warnIfEnvValueChanged("ADMIN_PASSWORD", adminPassword);
 
 const requestListener = async (req, res) => {
-  if (req.url?.startsWith("/api/admin/") && (await handleAdminApi(req, res))) return;
+  if (req.url?.startsWith("/api/") && (await handleApi(req, res))) return;
   handle(req, res);
 };
 const server = useHttps

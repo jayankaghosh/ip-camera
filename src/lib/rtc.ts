@@ -4,6 +4,7 @@ export type MediaState = { audio: boolean; video: boolean; changedBy: string | n
 
 export type RoomSummary = {
   code: string;
+  host: string;
   password: string | null;
   createdAt: number;
   media: MediaState;
@@ -16,6 +17,7 @@ export type ServerMessage =
   | { type: "join-ok"; media: MediaState }
   | { type: "host-left" }
   | { type: "kicked" }
+  | { type: "host-revoked"; message: string }
   | { type: "viewer-joined"; viewerId: string; name: string; isAdmin: boolean }
   | { type: "viewer-left"; viewerId: string }
   | { type: "viewer-mic"; viewerId: string; enabled: boolean }

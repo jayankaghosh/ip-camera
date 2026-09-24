@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { HostAccounts } from "@/components/HostAccounts";
 import { openSignaling, type RoomSummary } from "@/lib/rtc";
 
 const inputClass =
@@ -15,6 +16,7 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [rooms, setRooms] = useState<RoomSummary[] | null>(null);
+  const [tab, setTab] = useState<"streams" | "hosts">("streams");
 
   useEffect(() => {
     fetch("/api/admin/session")
@@ -108,32 +110,50 @@ export default function AdminPage() {
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 p-4 sm:p-6">
       <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Live streams</h1>
-          <p className="text-sm text-neutral-500 mt-1">
-            {rooms === null ? "Loading…" : `${rooms.length} active · updates live`}
-          </p>
+        <div className="flex gap-1 rounded-lg bg-neutral-200/60 p-1 dark:bg-neutral-800" role="tablist">
+          {(
+            [
+              ["streams", `Live streams${rooms ? ` (${rooms.length})` : ""}`],
+              ["hosts", "Hosts"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              role="tab"
+              aria-selected={tab === key}
+              onClick={() => setTab(key)}
+              className={`rounded-md px-4 py-1.5 text-sm font-medium ${
+                tab === key ? "bg-white shadow-sm dark:bg-neutral-950" : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
         <button onClick={logout} className="rounded-lg border border-neutral-300 dark:border-neutral-700 px-4 py-2 text-sm hover:border-blue-500">
           Log out
         </button>
       </div>
       {error && <p className="text-sm text-red-500">{error}</p>}
-      {rooms?.length === 0 && (
+      {tab === "hosts" && <HostAccounts rooms={rooms ?? []} />}
+      {tab === "streams" && rooms?.length === 0 && (
         <p className="rounded-xl border border-dashed border-neutral-300 dark:border-neutral-700 p-10 text-center text-neutral-500">
           No one is broadcasting right now.
         </p>
       )}
+      {tab === "streams" && (
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {rooms?.map((room) => (
           <article key={room.code} className="flex flex-col gap-4 rounded-xl border border-neutral-300 dark:border-neutral-700 p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="font-mono text-2xl font-semibold tracking-[0.3em]">{room.code}</div>
-                <div className="mt-1 text-xs text-neutral-500">Live since {formatTime(room.createdAt)}</div>
+                <div className="mt-1 text-xs text-neutral-500">
+                  {room.host} · live since {formatTime(room.createdAt)}
+                </div>
               </div>
               <a
-                href={`/view?code=${room.code}&admin=1`}
+                href={`/?code=${room.code}&admin=1`}
                 target="_blank"
                 rel="noopener"
                 className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
@@ -171,6 +191,7 @@ export default function AdminPage() {
           </article>
         ))}
       </div>
+      )}
     </main>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { BackButton } from "@/components/BackButton";
 import { MediaButton } from "@/components/MediaButton";
 import { TalkIndicator } from "@/components/TalkIndicator";
 import {
@@ -34,7 +35,13 @@ const CONSTRAINTS: Record<MediaKind, MediaTrackConstraints> = {
   audio: { echoCancellation: true, noiseSuppression: true },
 };
 
-export default function HostPage() {
+const inputClass =
+  "rounded-lg border border-neutral-300 dark:border-neutral-700 bg-transparent px-4 py-3 outline-none focus:border-blue-500";
+
+export function HostApp({ onBack }: { onBack: () => void }) {
+  // Which host account is logged in: undefined while checking, null when logged out.
+  const [account, setAccount] = useState<string | null | undefined>(undefined);
+  const [loggingIn, setLoggingIn] = useState(false);
   const [status, setStatus] = useState<"setup" | "starting" | "live">("setup");
   const [error, setError] = useState<string | null>(null);
   const [password, setPassword] = useState("");
@@ -70,6 +77,40 @@ export default function HostPage() {
   }
 
   useEffect(() => stopAll, []);
+
+  useEffect(() => {
+    fetch("/api/host/session")
+      .then((r) => r.json())
+      .then((body: { loggedIn?: boolean; username?: string }) => setAccount(body.loggedIn ? body.username! : null))
+      .catch(() => setAccount(null));
+  }, []);
+
+  async function login(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    setLoggingIn(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/host/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: form.get("username"), password: form.get("password") }),
+      });
+      const body = await res.json();
+      if (res.ok) setAccount(body.username);
+      else setError(body.error ?? "Login failed.");
+    } catch {
+      setError("Could not reach the server.");
+    } finally {
+      setLoggingIn(false);
+    }
+  }
+
+  async function logout() {
+    await fetch("/api/host/logout", { method: "POST" }).catch(() => {});
+    setError(null);
+    setAccount(null);
+  }
 
   // Only the camera goes to the preview (it's muted anyway); a fresh MediaStream makes the <video> re-render.
   function refreshPreview() {
@@ -230,6 +271,14 @@ export default function HostPage() {
           stopAll();
           setError(msg.message);
           setStatus("setup");
+        } else if (msg.type === "host-revoked") {
+          // Account deleted/changed by the admin, or the login expired: back to the login form.
+          stopAll();
+          setViewers([]);
+          setCode(null);
+          setAccount(null);
+          setError(msg.message);
+          setStatus("setup");
         } else {
           handleMessage(msg);
         }
@@ -258,9 +307,36 @@ export default function HostPage() {
     setStatus("setup");
   }
 
+  if (account === undefined) return null;
+
+  if (account === null) {
+    return (
+      <main className="flex flex-1 flex-col items-center justify-center gap-6 p-6">
+        <BackButton onClick={onBack} />
+        <form onSubmit={login} className="w-full max-w-sm flex flex-col gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold">Host login</h1>
+            <p className="text-sm text-neutral-500 mt-1">Log in with the host account the admin gave you.</p>
+          </div>
+          <input name="username" required autoComplete="username" autoCapitalize="none" placeholder="Username" className={inputClass} />
+          <input name="password" type="password" required autoComplete="current-password" placeholder="Password" className={inputClass} />
+          {error && <p className="text-sm text-red-500">{error}</p>}
+          <button
+            type="submit"
+            disabled={loggingIn}
+            className="rounded-lg bg-blue-600 text-white py-3 font-medium hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loggingIn ? "Please wait…" : "Log in"}
+          </button>
+        </form>
+      </main>
+    );
+  }
+
   if (status !== "live") {
     return (
-      <main className="flex flex-1 items-center justify-center p-6">
+      <main className="flex flex-1 flex-col items-center justify-center gap-6 p-6">
+        <BackButton onClick={onBack} />
         <form
           className="w-full max-w-sm flex flex-col gap-4"
           onSubmit={(e) => {
@@ -273,10 +349,16 @@ export default function HostPage() {
             <p className="text-sm text-neutral-500 mt-1">
               You&apos;ll get a 6-character code. Share it with the people who should watch.
             </p>
+            <p className="text-sm text-neutral-500 mt-2">
+              Logged in as <span className="font-medium text-neutral-800 dark:text-neutral-200">{account}</span> ·{" "}
+              <button type="button" onClick={logout} className="underline hover:text-neutral-800 dark:hover:text-neutral-200">
+                Log out
+              </button>
+            </p>
           </div>
           <label className="flex flex-col gap-1.5">
             <span className="text-sm">
-              Password <span className="text-neutral-500">(optional)</span>
+              Stream password <span className="text-neutral-500">(optional)</span>
             </span>
             <input
               type="password"
@@ -285,8 +367,9 @@ export default function HostPage() {
               placeholder="Leave empty for code only"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="rounded-lg border border-neutral-300 dark:border-neutral-700 bg-transparent px-4 py-3 outline-none focus:border-blue-500"
+              className={inputClass}
             />
+            <span className="text-xs text-neutral-500">Viewers type this along with the code. Not your account password.</span>
           </label>
           {error && <p className="text-sm text-red-500">{error}</p>}
           <button
@@ -308,6 +391,7 @@ export default function HostPage() {
       <div className="flex w-full max-w-4xl flex-wrap items-center justify-between gap-3">
         <span className="flex items-center gap-2 text-sm font-medium">
           <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" /> LIVE
+          <span className="font-normal text-neutral-500">· {account}</span>
         </span>
         <div className="flex flex-wrap items-center gap-2">
           <button

@@ -2,15 +2,18 @@
 
 Turn one device into a live camera; watch it from another with a 6-character code.
 
-- **Host** optionally sets a password, grants camera + mic, goes live, and gets a unique code
+Everything is at one URL, `/`, which asks "Host or Viewer". A link like `/?code=J74TXD` opens the
+viewer with the code filled in. Only the admin page is separate, at `/admin`.
+
+- **Host** logs in with a host account (created by the admin), optionally sets a stream password, grants camera + mic, goes live, and gets a unique code
   (e.g. `J74TXD`). The host sees everyone watching, can remove any viewer, and can turn their own
   mic/camera off and on.
 - **Viewer** enters their name, the code, and the password (if the host set one) and gets the live
   video + audio. Viewers can also turn the host's mic/camera off and on, and press **Talk** to switch on
   their own mic so the host hears them; the host sees a mic icon beside their name, which turns into
   animated bars while they speak.
-- **Admin** (`/admin`, login from `.env`) sees every live stream with its code, password, mic/camera
-  state and viewers, and can watch any stream without its password. The host sees admins as
+- **Admin** (`/admin`, login from `.env`) adds, renames, re-passwords and deletes host accounts, and
+  sees every live stream with its host, code, password, mic/camera state and viewers, and can watch any stream without its password. The host sees admins as
   "Admin" in their viewer list.
 
 Several hosts can be live at the same time; each has its own code.
@@ -45,7 +48,12 @@ cp .env.example .env # then set ADMIN_USERNAME / ADMIN_PASSWORD
 npm run dev          # http://localhost:8908
 ```
 
-Leave `ADMIN_USERNAME` / `ADMIN_PASSWORD` empty to disable `/admin`.
+Leave `ADMIN_USERNAME` / `ADMIN_PASSWORD` empty to disable `/admin`. Nobody can host until the admin
+has created at least one host account at `/admin` → **Hosts**.
+
+Host accounts are saved to `data/hosts.json` (passwords as salted scrypt hashes; set `DATA_DIR` to
+store it elsewhere). Back that file up; everything else is in memory. Changing or deleting a host
+account logs that host out everywhere and ends their live streams.
 
 Production: `npm run build && npm start`.
 
