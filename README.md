@@ -49,3 +49,23 @@ can't connect (strict NAT / corporate networks), add a TURN server:
 ```bash
 NEXT_PUBLIC_ICE_SERVERS='[{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}]' npm run build
 ```
+
+## Deploy behind nginx
+
+`nginx-server-block.conf` is the site config (HTTP→HTTPS redirect + the HTTPS server) and it includes
+`nginx.conf` from the project root, which holds the actual proxy rules: `/ws` upgraded to a
+long-lived WebSocket, `/_next/static/` served from disk with immutable caching, everything else
+proxied to Next.js.
+
+```bash
+# on the server, in /var/www/html/ipcamera
+npm ci && npm run build
+TRUST_PROXY=1 PORT=3000 pm2 start npm --name ip-camera -- start
+
+sudo ln -s /var/www/html/ipcamera/nginx-server-block.conf /etc/nginx/sites-enabled/ipcamera
+sudo certbot --nginx -d ipcam.jayanka.in   # adds the ssl_certificate lines
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+`TRUST_PROXY=1` makes the app listen on `127.0.0.1` only and take the client IP from nginx's
+`X-Real-IP` header, so the wrong-code lockout applies per visitor instead of to everyone at once.

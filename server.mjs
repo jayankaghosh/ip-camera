@@ -16,6 +16,10 @@ const dev = process.env.NODE_ENV !== "production";
 const certFile = process.env.CERT_FILE || "certs/cert.pem";
 const keyFile = process.env.KEY_FILE || "certs/key.pem";
 const useHttps = existsSync(certFile) && existsSync(keyFile);
+// Behind a reverse proxy (nginx), trust its X-Real-IP header and only listen on loopback so
+// clients can't bypass the proxy and spoof that header.
+const trustProxy = process.env.TRUST_PROXY === "1";
+const hostname = process.env.HOST || (trustProxy ? "127.0.0.1" : undefined);
 
 // No 0/O or 1/I/L so codes can be read aloud and typed without mistakes.
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -74,7 +78,7 @@ function closeRoom(code) {
 }
 
 function onConnection(ws, req) {
-  const ip = req.socket.remoteAddress ?? "unknown";
+  const ip = (trustProxy && req.headers["x-real-ip"]) || req.socket.remoteAddress || "unknown";
   /** @type {"host" | "viewer" | null} */
   let role = null;
   /** @type {string | null} */
@@ -162,10 +166,10 @@ server.on("upgrade", (req, socket, head) => {
   }
 });
 
-server.listen(port, () => {
+server.listen(port, hostname, () => {
   const scheme = useHttps ? "https" : "http";
   console.log(`> Ready on ${scheme}://localhost:${port} (${dev ? "development" : "production"})`);
-  if (!useHttps) {
+  if (!useHttps && !trustProxy) {
     console.log("> Camera access on other devices needs HTTPS: run `npm run cert` and restart.");
   }
 });
