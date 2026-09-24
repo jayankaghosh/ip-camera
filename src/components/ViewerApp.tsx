@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BackButton } from "@/components/BackButton";
+import { Icon } from "@/components/icons";
+import { CardHeader, ErrorMessage, FormCard, Screen, Spinner } from "@/components/ui";
 import { JoinForm } from "@/components/JoinForm";
 import { MediaButton } from "@/components/MediaButton";
 import { createQueue, openSignaling, rtcConfig, type MediaKind, type MediaState } from "@/lib/rtc";
@@ -27,6 +28,7 @@ export function ViewerApp({
   const [micBusy, setMicBusy] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const playerRef = useRef<HTMLDivElement>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -194,109 +196,132 @@ export function ViewerApp({
     wsRef.current?.send(JSON.stringify({ type: "set-media", kind, enabled: !media[kind] }));
   }
 
+  function leave() {
+    stopAll();
+    setStats(null);
+    setMicOn(false);
+    setMicError(null);
+    setStatus("login");
+  }
+
+  // Fullscreen the whole player (so the controls stay visible); iPhone Safari only allows the bare video.
+  function toggleFullscreen() {
+    const el = playerRef.current;
+    const video = videoRef.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else if (el?.requestFullscreen) el.requestFullscreen().catch(() => {});
+    else video?.webkitEnterFullscreen?.();
+  }
+
   if (status === "login" || status === "joining") {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-6 p-6">
-        {!asAdmin && <BackButton onClick={onBack} />}
-        {asAdmin ? (
-          <div className="w-full max-w-sm flex flex-col gap-4">
-            <div>
-              <h1 className="text-2xl font-semibold">Watch as admin</h1>
-              <p className="text-sm text-neutral-500 mt-1">
-                Stream <span className="font-mono">{initialCode}</span>. The host will see you as &quot;Admin&quot;.
-              </p>
-            </div>
-            {error && <p className="text-sm text-red-500">{error}</p>}
-            <button
-              onClick={() => join("", initialCode, "")}
-              disabled={status === "joining"}
-              className="rounded-lg bg-blue-600 text-white py-3 font-medium hover:bg-blue-700 disabled:opacity-50"
-            >
-              {status === "joining" ? "Please wait…" : "Watch"}
-            </button>
-          </div>
-        ) : (
-          <JoinForm initialCode={initialCode} busy={status === "joining"} error={error} onSubmit={join} />
-        )}
-      </main>
+      <Screen>
+        <FormCard onBack={asAdmin ? undefined : onBack}>
+          {asAdmin ? (
+            <>
+              <CardHeader icon="shield" tone="warning" title="Watch as admin">
+                Stream <span className="font-mono font-semibold text-fg">{initialCode}</span>. The host will see you as
+                &quot;Admin&quot;.
+              </CardHeader>
+              <ErrorMessage>{error}</ErrorMessage>
+              <button onClick={() => join("", initialCode, "")} disabled={status === "joining"} className="btn btn-primary w-full">
+                {status === "joining" ? <Spinner /> : <><Icon name="monitor" /> Watch</>}
+              </button>
+            </>
+          ) : (
+            <>
+              <CardHeader icon="monitor" title="Watch a camera">
+                Enter the code the host shared with you.
+              </CardHeader>
+              <JoinForm initialCode={initialCode} busy={status === "joining"} error={error} onSubmit={join} />
+            </>
+          )}
+        </FormCard>
+      </Screen>
     );
   }
 
   if (status === "connecting") {
     return (
-      <main className="flex flex-1 items-center justify-center p-6 text-neutral-500">Connecting to camera…</main>
+      <Screen>
+        <div className="flex flex-col items-center gap-3 text-muted">
+          <Spinner className="h-7 w-7" />
+          <span className="text-sm">Connecting to camera…</span>
+        </div>
+      </Screen>
     );
   }
 
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-4 p-4">
-      <div className="relative w-full max-w-4xl">
-        <video ref={videoRef} autoPlay playsInline controls className="w-full rounded-xl bg-black aspect-video object-contain" />
+    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col justify-center gap-3 p-3 sm:p-6">
+      <div ref={playerRef} className="relative overflow-hidden rounded-[20px] bg-black">
+        <video ref={videoRef} autoPlay playsInline className="aspect-video h-full w-full object-contain" />
         {!media.video && (
-          <div className="pointer-events-none absolute inset-0 bottom-12 flex flex-col items-center justify-center rounded-t-xl bg-neutral-900 text-neutral-400">
-            <span>Camera is off</span>
-            {media.changedBy && <span className="text-xs mt-1">Turned off by {media.changedBy}</span>}
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#111] text-white/70">
+            <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-white/10">
+              <Icon name="video" slash className="h-6 w-6" />
+            </span>
+            <span className="text-sm">
+              Camera is off{media.changedBy && <span className="text-white/50"> · turned off by {media.changedBy}</span>}
+            </span>
           </div>
         )}
-        {stats && media.video && (
-          <div className="absolute left-3 top-3 rounded-md bg-black/60 px-2 py-1 font-mono text-xs text-white">
-            {stats.codec} · {stats.resolution} · {stats.fps}fps · {stats.kbps} kbps
-          </div>
-        )}
-        {!media.audio && (
-          <span className="absolute right-3 top-3 rounded-md bg-red-600 px-2 py-1 text-xs text-white">
-            Host mic off{media.changedBy ? ` · ${media.changedBy}` : ""}
-          </span>
-        )}
+        <div className="absolute inset-x-3 top-3 flex items-start justify-between gap-2">
+          {stats && media.video ? (
+            <span className="on-video px-2.5 py-1 font-mono text-[11px]">
+              {stats.codec} · {stats.resolution} · {stats.fps}fps · {stats.kbps} kbps
+            </span>
+          ) : (
+            <span />
+          )}
+          {!media.audio && (
+            <span className="on-video flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium">
+              <Icon name="mic" slash className="h-3.5 w-3.5" />
+              Host mic off{media.changedBy ? ` · ${media.changedBy}` : ""}
+            </span>
+          )}
+        </div>
         {needsTap && media.audio && (
           <button
             onClick={() => {
               if (videoRef.current) videoRef.current.muted = false;
               setNeedsTap(false);
             }}
-            className="absolute inset-x-0 bottom-16 mx-auto w-fit rounded-lg bg-white/90 px-4 py-2 text-sm font-medium text-black"
+            className="on-video absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 px-5 py-3 text-sm font-semibold"
           >
-            🔇 Tap to unmute
+            <Icon name="volumeOff" /> Tap to unmute
           </button>
         )}
-      </div>
-      <div className="flex flex-wrap items-center justify-center gap-3">
-        <div className="flex items-center gap-2" role="group" aria-label="Host device">
-          <MediaButton kind="audio" enabled={media.audio} disabled={pending !== null} onToggle={() => toggle("audio")} />
-          <MediaButton kind="video" enabled={media.video} disabled={pending !== null} onToggle={() => toggle("video")} />
+        {/* Below the video on phones, floating over it on larger screens */}
+        <div className="flex justify-center p-3 sm:absolute sm:bottom-4 sm:left-1/2 sm:-translate-x-1/2 sm:p-0">
+          <div className="on-video flex items-center gap-2 p-2 sm:gap-2.5">
+            <MediaButton kind="audio" enabled={media.audio} disabled={pending !== null} onToggle={() => toggle("audio")} />
+            <MediaButton kind="video" enabled={media.video} disabled={pending !== null} onToggle={() => toggle("video")} />
+            <span className="mx-0.5 h-7 w-px bg-white/25" />
+            <button
+              onClick={toggleMyMic}
+              disabled={micBusy}
+              aria-pressed={micOn}
+              title={micOn ? "Stop talking" : "Talk to the host"}
+              className={`ctl w-auto gap-2 px-4 text-sm font-semibold ${micOn ? "ctl-active" : ""}`}
+            >
+              <Icon name="mic" className="h-5 w-5" />
+              {micOn ? "Talking" : "Talk"}
+            </button>
+            <button onClick={toggleFullscreen} title="Fullscreen" aria-label="Fullscreen" className="ctl hidden sm:inline-flex">
+              <Icon name="maximize" className="h-5 w-5" />
+            </button>
+            <button onClick={leave} title="Leave" aria-label="Leave" className="ctl ctl-danger">
+              <Icon name="end" className="h-[22px] w-[22px]" />
+            </button>
+          </div>
         </div>
-        <span className="mx-1 h-8 w-px bg-neutral-300 dark:bg-neutral-700" />
-        <button
-          onClick={toggleMyMic}
-          disabled={micBusy}
-          aria-pressed={micOn}
-          className={`flex h-12 items-center gap-2 rounded-full px-5 font-medium transition-colors disabled:opacity-50 ${
-            micOn ? "bg-green-600 text-white hover:bg-green-700" : "bg-blue-600 text-white hover:bg-blue-700"
-          }`}
-        >
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <rect x="9" y="3" width="6" height="11" rx="3" />
-            <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-          </svg>
-          {micOn ? "Mute me" : "Talk"}
-        </button>
-        <button
-          onClick={() => {
-            stopAll();
-            setStats(null);
-            setMicOn(false);
-            setMicError(null);
-            setStatus("login");
-          }}
-          className="rounded-lg bg-neutral-800 text-white px-6 py-3 hover:bg-neutral-700"
-        >
-          Leave
-        </button>
       </div>
-      {micError && <p className="text-sm text-red-500">{micError}</p>}
-      <p className="max-w-md text-center text-xs text-neutral-500">
-        The round buttons switch the host&apos;s mic and camera for everyone. <strong>Talk</strong> turns on your own mic
-        so the host can hear you{micOn ? " — the host can hear you now" : ""}.
+      <ErrorMessage>{micError}</ErrorMessage>
+      <p className="px-2 text-center text-xs leading-relaxed text-muted">
+        The first two buttons turn the <strong className="font-semibold text-fg">host&apos;s</strong> mic and camera on or off for
+        everyone. <strong className="font-semibold text-fg">Talk</strong> turns on your own mic so the host can hear you
+        {micOn ? " (they can hear you now)" : ""}.
       </p>
     </main>
   );

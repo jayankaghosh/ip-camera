@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "@/components/icons";
+import { ErrorMessage, Field, SubmitButton } from "@/components/ui";
 
 const NAME_KEY = "ip-camera:name";
 
@@ -26,12 +28,10 @@ export function JoinForm({
   }, []);
   const [code, setCode] = useState(initialCode);
   const [password, setPassword] = useState("");
-  const inputClass =
-    "rounded-lg border border-neutral-300 dark:border-neutral-700 bg-transparent px-4 py-3 outline-none focus:border-blue-500";
 
   return (
     <form
-      className="w-full max-w-sm flex flex-col gap-4"
+      className="flex flex-col gap-4"
       onSubmit={(e) => {
         e.preventDefault();
         const name = nameRef.current?.value.trim() ?? "";
@@ -41,48 +41,37 @@ export function JoinForm({
         onSubmit(name, code, password);
       }}
     >
-      <div>
-        <h1 className="text-2xl font-semibold">Watch a camera</h1>
-        <p className="text-sm text-neutral-500 mt-1">The host will see your name while you watch.</p>
-      </div>
-      <input
-        required
-        maxLength={40}
-        autoComplete="name"
-        placeholder="Your name"
-        ref={nameRef}
-        className={inputClass}
-      />
-      <input
-        required
-        autoFocus
-        minLength={6}
-        maxLength={6}
-        autoComplete="off"
-        autoCapitalize="characters"
-        spellCheck={false}
-        placeholder="6-character code"
-        value={code}
-        onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
-        className={`${inputClass} font-mono text-lg tracking-[0.3em] uppercase`}
-      />
-      <input
+      <Field label="Your name" required maxLength={40} autoComplete="name" ref={nameRef} hint="The host sees this while you watch." />
+      <label className="flex flex-col gap-1.5">
+        <span className="text-sm font-medium">Code</span>
+        <input
+          required
+          autoFocus={!initialCode}
+          minLength={6}
+          maxLength={6}
+          autoComplete="off"
+          autoCapitalize="characters"
+          spellCheck={false}
+          placeholder="ABC123"
+          value={code}
+          onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+          className="field text-center font-mono text-2xl font-semibold uppercase tracking-[0.35em] placeholder:tracking-[0.35em] placeholder:opacity-40"
+        />
+      </label>
+      <Field
+        label="Stream password"
+        optional
         type="password"
         maxLength={64}
         autoComplete="off"
-        placeholder="Password (only if the host set one)"
+        placeholder="Only if the host set one"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
-        className={inputClass}
       />
-      {error && <p className="text-sm text-red-500">{error}</p>}
-      <button
-        type="submit"
-        disabled={busy}
-        className="rounded-lg bg-blue-600 text-white py-3 font-medium hover:bg-blue-700 disabled:opacity-50"
-      >
-        {busy ? "Please wait…" : "Watch"}
-      </button>
+      <ErrorMessage>{error}</ErrorMessage>
+      <SubmitButton busy={busy}>
+        <Icon name="monitor" /> Watch
+      </SubmitButton>
     </form>
   );
 }

@@ -2,10 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { HostAccounts } from "@/components/HostAccounts";
+import { Icon } from "@/components/icons";
+import { Avatar, CardHeader, ErrorMessage, Field, FormCard, Screen, SubmitButton } from "@/components/ui";
 import { openSignaling, type RoomSummary } from "@/lib/rtc";
-
-const inputClass =
-  "rounded-lg border border-neutral-300 dark:border-neutral-700 bg-transparent px-4 py-3 outline-none focus:border-blue-500";
 
 function formatTime(ms: number) {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -79,118 +78,125 @@ export default function AdminPage() {
 
   if (session === "out") {
     return (
-      <main className="flex flex-1 items-center justify-center p-6">
-        <form onSubmit={login} className="w-full max-w-sm flex flex-col gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold">Admin</h1>
-            <p className="text-sm text-neutral-500 mt-1">Log in to see all live streams.</p>
-          </div>
-          <input name="username" required autoComplete="username" placeholder="Username" className={inputClass} />
-          <input
-            name="password"
-            type="password"
-            required
-            autoComplete="current-password"
-            placeholder="Password"
-            className={inputClass}
-          />
-          {error && <p className="text-sm text-red-500">{error}</p>}
-          <button
-            type="submit"
-            disabled={busy}
-            className="rounded-lg bg-blue-600 text-white py-3 font-medium hover:bg-blue-700 disabled:opacity-50"
-          >
-            {busy ? "Please wait…" : "Log in"}
-          </button>
-        </form>
-      </main>
+      <Screen>
+        <FormCard>
+          <CardHeader icon="shield" title="Admin">
+            Log in to manage hosts and see all live streams.
+          </CardHeader>
+          <form onSubmit={login} className="flex flex-col gap-4">
+            <Field label="Username" name="username" required autoComplete="username" autoCapitalize="none" />
+            <Field label="Password" name="password" type="password" required autoComplete="current-password" />
+            <ErrorMessage>{error}</ErrorMessage>
+            <SubmitButton busy={busy}>Log in</SubmitButton>
+          </form>
+        </FormCard>
+      </Screen>
     );
   }
 
+  const tabs = [
+    { key: "streams", label: "Live streams", count: rooms?.length },
+    { key: "hosts", label: "Hosts" },
+  ] as const;
+
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 p-4 sm:p-6">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex gap-1 rounded-lg bg-neutral-200/60 p-1 dark:bg-neutral-800" role="tablist">
-          {(
-            [
-              ["streams", `Live streams${rooms ? ` (${rooms.length})` : ""}`],
-              ["hosts", "Hosts"],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              role="tab"
-              aria-selected={tab === key}
-              onClick={() => setTab(key)}
-              className={`rounded-md px-4 py-1.5 text-sm font-medium ${
-                tab === key ? "bg-white shadow-sm dark:bg-neutral-950" : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <button onClick={logout} className="rounded-lg border border-neutral-300 dark:border-neutral-700 px-4 py-2 text-sm hover:border-blue-500">
-          Log out
+    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-5 p-4 sm:p-6">
+      <header className="flex flex-wrap items-center gap-3">
+        <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-white">
+          <Icon name="shield" className="h-5 w-5" />
+        </span>
+        <h1 className="text-xl font-semibold tracking-tight">Admin</h1>
+        <button onClick={logout} className="btn btn-sm btn-secondary ml-auto">
+          <Icon name="logOut" className="h-4 w-4" /> Log out
         </button>
+      </header>
+
+      <div className="flex w-fit gap-1 rounded-xl bg-surface-2 p-1" role="tablist">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            role="tab"
+            aria-selected={tab === t.key}
+            onClick={() => setTab(t.key)}
+            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+              tab === t.key ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg"
+            }`}
+          >
+            {t.label}
+            {"count" in t && t.count !== undefined && (
+              <span className={`rounded-full px-1.5 text-xs ${t.count ? "bg-danger text-white" : "bg-line text-muted"}`}>{t.count}</span>
+            )}
+          </button>
+        ))}
       </div>
-      {error && <p className="text-sm text-red-500">{error}</p>}
+
+      <ErrorMessage>{error}</ErrorMessage>
       {tab === "hosts" && <HostAccounts rooms={rooms ?? []} />}
+
       {tab === "streams" && rooms?.length === 0 && (
-        <p className="rounded-xl border border-dashed border-neutral-300 dark:border-neutral-700 p-10 text-center text-neutral-500">
-          No one is broadcasting right now.
-        </p>
+        <div className="card flex flex-col items-center gap-3 px-6 py-14 text-center">
+          <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-surface-2 text-muted">
+            <Icon name="video" slash className="h-6 w-6" />
+          </span>
+          <p className="text-muted">No one is broadcasting right now.</p>
+        </div>
       )}
+
       {tab === "streams" && (
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {rooms?.map((room) => (
-          <article key={room.code} className="flex flex-col gap-4 rounded-xl border border-neutral-300 dark:border-neutral-700 p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="font-mono text-2xl font-semibold tracking-[0.3em]">{room.code}</div>
-                <div className="mt-1 text-xs text-neutral-500">
-                  {room.host} · live since {formatTime(room.createdAt)}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {rooms?.map((room) => (
+            <article key={room.code} className="card flex flex-col gap-4 p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="live-dot h-2 w-2 rounded-full bg-danger" />
+                    <span className="font-mono text-2xl font-semibold tracking-[0.2em]">{room.code}</span>
+                  </div>
+                  <div className="mt-1 truncate text-sm text-muted">
+                    <span className="font-medium text-fg">{room.host}</span> · live since {formatTime(room.createdAt)}
+                  </div>
                 </div>
+                <a href={`/?code=${room.code}&admin=1`} target="_blank" rel="noopener" className="btn btn-sm btn-primary shrink-0">
+                  <Icon name="monitor" className="h-4 w-4" /> Watch
+                </a>
               </div>
-              <a
-                href={`/?code=${room.code}&admin=1`}
-                target="_blank"
-                rel="noopener"
-                className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-              >
-                Watch
-              </a>
-            </div>
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
-              <dt className="text-neutral-500">Password</dt>
-              <dd className="font-mono">{room.password ?? <span className="font-sans text-neutral-500">None</span>}</dd>
-              <dt className="text-neutral-500">Camera</dt>
-              <dd className={room.media.video ? "" : "text-red-500"}>{room.media.video ? "On" : "Off"}</dd>
-              <dt className="text-neutral-500">Mic</dt>
-              <dd className={room.media.audio ? "" : "text-red-500"}>{room.media.audio ? "On" : "Off"}</dd>
-              <dt className="text-neutral-500">Viewers</dt>
-              <dd>
+              <dl className="grid grid-cols-3 gap-2 text-sm">
+                <div className="rounded-xl bg-surface-2 px-3 py-2">
+                  <dt className="text-xs text-muted">Password</dt>
+                  <dd className="truncate font-mono font-medium">{room.password ?? <span className="font-sans text-muted">None</span>}</dd>
+                </div>
+                <div className="rounded-xl bg-surface-2 px-3 py-2">
+                  <dt className="text-xs text-muted">Camera</dt>
+                  <dd className={`font-medium ${room.media.video ? "" : "text-danger"}`}>{room.media.video ? "On" : "Off"}</dd>
+                </div>
+                <div className="rounded-xl bg-surface-2 px-3 py-2">
+                  <dt className="text-xs text-muted">Mic</dt>
+                  <dd className={`font-medium ${room.media.audio ? "" : "text-danger"}`}>{room.media.audio ? "On" : "Off"}</dd>
+                </div>
+              </dl>
+              <div>
+                <h3 className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted">
+                  <Icon name="users" className="h-3.5 w-3.5" /> Viewers · {room.viewers.length}
+                </h3>
                 {room.viewers.length === 0 ? (
-                  <span className="text-neutral-500">None</span>
+                  <p className="text-sm text-muted">No one watching.</p>
                 ) : (
-                  <ul className="flex flex-col gap-0.5">
+                  <ul className="flex flex-col gap-1.5">
                     {room.viewers.map((v, i) => (
-                      <li key={i} className="flex items-center justify-between gap-2">
-                        <span className="truncate">
-                          {v.name}
-                          {v.isAdmin && <span className="ml-1.5 text-[10px] uppercase text-amber-600 dark:text-amber-400">admin</span>}
-                          {v.micOn && <span className="ml-1.5 text-[10px] uppercase text-green-600 dark:text-green-400">mic on</span>}
-                        </span>
-                        <span className="text-xs text-neutral-500">{formatTime(v.joinedAt)}</span>
+                      <li key={i} className="flex items-center gap-2.5 text-sm">
+                        <Avatar name={v.name} />
+                        <span className="min-w-0 flex-1 truncate font-medium">{v.name}</span>
+                        {v.micOn && <span className="chip bg-success/15 text-success">Mic on</span>}
+                        {v.isAdmin && <span className="chip bg-warning/15 text-warning">Admin</span>}
+                        <span className="text-xs text-muted">{formatTime(v.joinedAt)}</span>
                       </li>
                     ))}
                   </ul>
                 )}
-              </dd>
-            </dl>
-          </article>
-        ))}
-      </div>
+              </div>
+            </article>
+          ))}
+        </div>
       )}
     </main>
   );

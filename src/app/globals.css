@@ -1,39 +1,253 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens. Deliberately cheap to render on old phones: solid surfaces, thin borders,
+ * no backdrop-filter / blur, no background animation. The only animations are the LIVE dot
+ * and the speaking bars, and they only run while visible.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --surface-2: #f0f0f3;
+  --border: #e2e2e7;
+  --fg: #1d1d1f;
+  --muted: #6e6e73;
+  --accent: #0071e3;
+  --accent-hover: #0064cc;
+  --danger: #e5362b;
+  --success: #1fa84a;
+  --warning: #c77700;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 16px rgb(0 0 0 / 0.04);
+  color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --bg: #0b0b0d;
+    --surface: #17171a;
+    --surface-2: #222226;
+    --border: #2c2c31;
+    --fg: #f5f5f7;
+    --muted: #9b9ba3;
+    --accent: #0a84ff;
+    --accent-hover: #3b9bff;
+    --danger: #ff453a;
+    --success: #30d158;
+    --warning: #ffb340;
+    --shadow: none;
+    color-scheme: dark;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--border);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  /* System fonts: native look (SF on Apple, Roboto on Android) and nothing to download. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-/* Speaking indicator bars (TalkIndicator) */
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+}
+
+@layer components {
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    box-shadow: var(--shadow);
+  }
+
+  .field {
+    width: 100%;
+    min-width: 0;
+    background: var(--surface-2);
+    border: 1px solid transparent;
+    border-radius: 12px;
+    padding: 0.8rem 1rem;
+    font-size: 1rem; /* 16px: stops iOS zooming into the field */
+    color: var(--fg);
+    outline: none;
+    transition: border-color 0.15s, background-color 0.15s;
+  }
+  .field::placeholder {
+    color: var(--muted);
+  }
+  .field:focus {
+    border-color: var(--accent);
+    background: var(--surface);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 3rem;
+    padding: 0 1.25rem;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    transition: background-color 0.15s, opacity 0.15s;
+    user-select: none;
+  }
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .btn-sm {
+    min-height: 2.25rem;
+    padding: 0 0.85rem;
+    border-radius: 10px;
+    font-size: 0.85rem;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+  }
+  .btn-primary:not(:disabled):hover {
+    background: var(--accent-hover);
+  }
+  .btn-secondary {
+    background: var(--surface-2);
+    color: var(--fg);
+  }
+  .btn-secondary:not(:disabled):hover {
+    background: var(--border);
+  }
+  .btn-danger {
+    background: var(--danger);
+    color: #fff;
+  }
+  .btn-danger:not(:disabled):hover {
+    opacity: 0.9;
+  }
+  .btn-ghost-danger {
+    color: var(--danger);
+  }
+  .btn-ghost-danger:not(:disabled):hover {
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+  }
+
+  /* Small label chips (LIVE, ADMIN, MIC ON…) */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border-radius: 999px;
+    padding: 0.1rem 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  /* Things drawn on top of video: plain translucent fill, no blur (cheap to composite). */
+  .on-video {
+    background: rgb(0 0 0 / 0.55);
+    color: #fff;
+    border-radius: 999px;
+  }
+
+  /* Round call-style controls over the video. */
+  .ctl {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.25rem;
+    height: 3.25rem;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.16);
+    color: #fff;
+    transition: background-color 0.15s;
+  }
+  .ctl:not(:disabled):hover {
+    background: rgb(255 255 255 / 0.26);
+  }
+  .ctl:disabled {
+    opacity: 0.5;
+  }
+  /* "Off" state: white disc with dark icon, like a phone call's muted button. */
+  .ctl-off {
+    background: #fff;
+    color: #111;
+  }
+  .ctl-off:not(:disabled):hover {
+    background: #e8e8ea;
+  }
+  .ctl-danger {
+    background: #ff3b30;
+  }
+  .ctl-danger:not(:disabled):hover {
+    background: #e5352b;
+  }
+  .ctl-active {
+    background: #30d158;
+    color: #04210d;
+  }
+  .ctl-active:not(:disabled):hover {
+    background: #45da6a;
+  }
+}
+
+/* LIVE dot: opacity-only animation, which phones run on the compositor without repainting. */
+@keyframes live-dot {
+  50% {
+    opacity: 0.35;
+  }
+}
+.live-dot {
+  animation: live-dot 1.6s ease-in-out infinite;
+}
+
+/* Speaking indicator bars (TalkIndicator); only rendered while someone is speaking. */
 @keyframes talk-bar {
-  0%, 100% { height: 30%; }
-  50% { height: 100%; }
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
 }
 .talk-bar {
-  height: 30%;
+  height: 100%;
+  transform-origin: bottom;
   animation: talk-bar 0.7s ease-in-out infinite;
 }
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spinner {
+  animation: spin 0.8s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .talk-bar { animation: none; height: 70%; }
+  .live-dot,
+  .talk-bar,
+  .spinner {
+    animation: none;
+  }
+  .talk-bar {
+    transform: scaleY(0.7);
+  }
 }

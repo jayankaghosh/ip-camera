@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { HostApp } from "@/components/HostApp";
 import { ViewerApp } from "@/components/ViewerApp";
+import { Icon } from "@/components/icons";
+import { IconBadge, Screen } from "@/components/ui";
 
 /**
  * The whole app lives at "/": pick Host or Viewer here. A link with ?code=ABC123 opens the viewer
@@ -25,28 +27,43 @@ export function Home() {
     return <ViewerApp initialCode={initialCode} asAdmin={asAdmin} onBack={back} />;
   }
 
+  const choices = [
+    { role: "host", icon: "video", title: "Host", text: "Stream this device's camera and mic. Needs a host account." },
+    { role: "viewer", icon: "monitor", title: "Watch", text: "Watch a live camera with the code the host shared." },
+  ] as const;
+
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-8 p-6">
-      <div className="text-center">
-        <h1 className="text-3xl font-semibold">IP Camera</h1>
-        <p className="text-neutral-500 mt-2">Are you streaming a camera or watching one?</p>
+    <Screen>
+      <div className="flex w-full max-w-[400px] flex-col gap-8">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <span className="inline-flex h-16 w-16 items-center justify-center rounded-[20px] bg-accent text-white">
+            <Icon name="video" className="h-8 w-8" />
+          </span>
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight">IP Camera</h1>
+            <p className="mt-1.5 text-muted">Live video from any device, straight to your screen.</p>
+          </div>
+        </div>
+        <div className="card overflow-hidden">
+          {choices.map((c, i) => (
+            <button
+              key={c.role}
+              onClick={() => setRole(c.role)}
+              className={`flex w-full items-center gap-4 p-5 text-left transition-colors hover:bg-surface-2 ${
+                i > 0 ? "border-t border-line" : ""
+              }`}
+            >
+              <IconBadge icon={c.icon} />
+              <span className="min-w-0 flex-1">
+                <span className="block text-lg font-semibold">{c.title}</span>
+                <span className="block text-sm leading-snug text-muted">{c.text}</span>
+              </span>
+              <Icon name="chevronRight" className="h-5 w-5 shrink-0 text-muted" />
+            </button>
+          ))}
+        </div>
+        <p className="text-center text-xs text-muted">Encrypted, peer-to-peer video</p>
       </div>
-      <div className="grid w-full max-w-md grid-cols-1 gap-4 sm:grid-cols-2">
-        <button
-          onClick={() => setRole("host")}
-          className="rounded-xl border border-neutral-300 dark:border-neutral-700 p-6 text-left hover:border-blue-500 transition-colors"
-        >
-          <div className="text-lg font-medium">Host</div>
-          <p className="text-sm text-neutral-500 mt-1">Share this device&apos;s camera and microphone. Needs a host account.</p>
-        </button>
-        <button
-          onClick={() => setRole("viewer")}
-          className="rounded-xl border border-neutral-300 dark:border-neutral-700 p-6 text-left hover:border-blue-500 transition-colors"
-        >
-          <div className="text-lg font-medium">Viewer</div>
-          <p className="text-sm text-neutral-500 mt-1">Watch a live camera with its code.</p>
-        </button>
-      </div>
-    </main>
+    </Screen>
   );
 }

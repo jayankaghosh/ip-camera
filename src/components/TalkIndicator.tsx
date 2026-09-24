@@ -2,7 +2,7 @@
 export function TalkIndicator({ micOn, speaking }: { micOn: boolean; speaking: boolean }) {
   if (speaking) {
     return (
-      <span role="img" aria-label="Speaking" title="Speaking" className="flex h-4 items-end gap-[2px] text-green-500">
+      <span role="img" aria-label="Speaking" title="Speaking" className="flex h-4 items-end gap-[2px] text-success">
         {[0, 1, 2].map((i) => (
           <span key={i} className="talk-bar w-[3px] rounded-full bg-current" style={{ animationDelay: `${i * 0.15}s` }} />
         ))}
@@ -15,7 +15,7 @@ export function TalkIndicator({ micOn, speaking }: { micOn: boolean; speaking: b
         role="img"
         aria-label="Mic on"
         viewBox="0 0 24 24"
-        className="h-3.5 w-3.5 text-neutral-500"
+        className="h-3.5 w-3.5 text-muted"
         fill="none"
         stroke="currentColor"
         strokeWidth="2"
