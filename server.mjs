@@ -11,7 +11,7 @@ import { randomInt, randomUUID } from "node:crypto";
 import next from "next";
 import { WebSocketServer } from "ws";
 
-const port = parseInt(process.env.PORT || "3000", 10);
+const port = parseInt(process.env.PORT || "8908", 10);
 const dev = process.env.NODE_ENV !== "production";
 const certFile = process.env.CERT_FILE || "certs/cert.pem";
 const keyFile = process.env.KEY_FILE || "certs/key.pem";

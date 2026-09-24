@@ -25,7 +25,7 @@ handshake. A code stops working as soon as its host stops. Video never passes th
 
 ```bash
 npm install
-npm run dev          # http://localhost:3000
+npm run dev          # http://localhost:8908
 ```
 
 Production: `npm run build && npm start`.
@@ -36,7 +36,7 @@ Browsers only allow camera access on `https://` or `localhost`. For other device
 
 ```bash
 npm run cert         # creates certs/ with a self-signed certificate
-npm run dev          # now serves https://<your-lan-ip>:3000
+npm run dev          # now serves https://<your-lan-ip>:8908
 ```
 
 Accept the certificate warning once on each device.
@@ -60,7 +60,7 @@ proxied to Next.js.
 ```bash
 # on the server, in /var/www/html/ipcamera
 npm ci && npm run build
-TRUST_PROXY=1 PORT=3000 pm2 start npm --name ip-camera -- start
+TRUST_PROXY=1 PORT=8908 pm2 start npm --name ip-camera -- start
 
 sudo ln -s /var/www/html/ipcamera/nginx-server-block.conf /etc/nginx/sites-enabled/ipcamera
 sudo certbot --nginx -d ipcam.jayanka.in   # adds the ssl_certificate lines
