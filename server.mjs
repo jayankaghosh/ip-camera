@@ -169,6 +169,7 @@ async function handleAdminApi(req, res) {
     const passOk = safeEqual(String(password ?? ""), adminPassword);
     if (!userOk || !passOk) {
       recordFailure(lockKey);
+      console.warn(`> Admin login failed from ${clientIp(req)}: wrong ${userOk ? "password" : "username"}.`);
       json(res, 403, { error: "Wrong username or password." });
       return true;
     }
@@ -350,6 +351,28 @@ await app.prepare();
 const adminUsername = process.env.ADMIN_USERNAME || "";
 const adminPassword = process.env.ADMIN_PASSWORD || "";
 
+// Next's .env loader expands "$NAME" (even inside quotes) and treats an unquoted "#" as a comment,
+// which silently changes passwords. Compare against the raw file so that's reported, not guessed at.
+function warnIfEnvValueChanged(key, loaded) {
+  const mode = dev ? "development" : "production";
+  for (const file of [`.env.${mode}.local`, ".env.local", `.env.${mode}`, ".env"]) {
+    if (!existsSync(file)) continue;
+    const line = readFileSync(file, "utf8").split(/\r?\n/).find((l) => l.trim().startsWith(`${key}=`));
+    if (!line) continue;
+    const raw = line.slice(line.indexOf("=") + 1).trim().replace(/^(["'])(.*)\1$/, "$2").replace(/\\\$/g, "$$");
+    if (raw !== loaded) {
+      console.warn(
+        `> WARNING: ${key} in ${file} was loaded differently from how it is written ` +
+          `(${raw.length} characters written, ${loaded.length} loaded). ` +
+          `Write every "$" as "\\$", and wrap the value in double quotes if it contains "#".`,
+      );
+    }
+    return;
+  }
+}
+warnIfEnvValueChanged("ADMIN_USERNAME", adminUsername);
+warnIfEnvValueChanged("ADMIN_PASSWORD", adminPassword);
+
 const requestListener = async (req, res) => {
   if (req.url?.startsWith("/api/admin/") && (await handleAdminApi(req, res))) return;
   handle(req, res);
@@ -389,6 +412,8 @@ server.listen(port, hostname, () => {
   console.log(`> Ready on ${scheme}://localhost:${port} (${dev ? "development" : "production"})`);
   if (!adminUsername || !adminPassword) {
     console.log("> Admin disabled: set ADMIN_USERNAME and ADMIN_PASSWORD in .env to enable /admin.");
+  } else {
+    console.log(`> Admin enabled for "${adminUsername}" (password is ${adminPassword.length} characters).`);
   }
   if (!useHttps && !trustProxy) {
     console.log("> Camera access on other devices needs HTTPS: run `npm run cert` and restart.");
