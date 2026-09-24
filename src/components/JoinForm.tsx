@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icons";
 import { ErrorMessage, Field, SubmitButton } from "@/components/ui";
 
+// Storage keys keep the old "ip-camera" prefix so data saved before the FurCam rename survives.
 const NAME_KEY = "ip-camera:name";
 
 export function JoinForm({

@@ -2,7 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "ip-camera",
+      "name": "furcam",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 8908

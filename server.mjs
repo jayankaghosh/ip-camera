@@ -35,6 +35,7 @@ const MAX_PASSWORD_LENGTH = 64;
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_MS = 60_000;
 const HOUR = 60 * 60 * 1000;
+// Cookie names predate the FurCam rename; changing them would log everyone out.
 const SESSIONS = {
   admin: { cookie: "ipcam_admin", ms: 12 * HOUR },
   // Long-lived so a phone used as a fixed camera stays logged in.

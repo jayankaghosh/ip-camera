@@ -49,7 +49,7 @@ export async function exportAlertsZip(alerts: ReceivedAlert[], streamCode: strin
   const url = URL.createObjectURL(new Blob([zip], { type: "application/zip" }));
   const link = document.createElement("a");
   link.href = url;
-  link.download = `alerts_${streamCode}_${stamp(Date.now())}.zip`;
+  link.download = `furcam-alerts_${streamCode}_${stamp(Date.now())}.zip`;
   document.body.append(link);
   link.click();
   link.remove();

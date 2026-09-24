@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { HostApp } from "@/components/HostApp";
 import { ViewerApp } from "@/components/ViewerApp";
 import { Icon } from "@/components/icons";
+import { Logo } from "@/components/Logo";
 import { IconBadge, Screen } from "@/components/ui";
 
 /**
@@ -28,20 +29,18 @@ export function Home() {
   }
 
   const choices = [
-    { role: "host", icon: "video", title: "Host", text: "Stream this device's camera and mic. Needs a host account." },
-    { role: "viewer", icon: "monitor", title: "Watch", text: "Watch a live camera with the code the host shared." },
+    { role: "host", icon: "video", title: "Host", text: "Turn this device into the pet cam. Needs a host account." },
+    { role: "viewer", icon: "monitor", title: "Watch", text: "See your pets live with the code from the pet cam." },
   ] as const;
 
   return (
     <Screen>
       <div className="flex w-full max-w-[400px] flex-col gap-8">
         <div className="flex flex-col items-center gap-4 text-center">
-          <span className="inline-flex h-16 w-16 items-center justify-center rounded-[20px] bg-accent text-white">
-            <Icon name="video" className="h-8 w-8" />
-          </span>
+          <Logo size={96} />
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight">IP Camera</h1>
-            <p className="mt-1.5 text-muted">Live video from any device, straight to your screen.</p>
+            <h1 className="text-3xl font-semibold tracking-tight">FurCam</h1>
+            <p className="mt-1.5 text-muted">Keep an eye on your pets from anywhere.</p>
           </div>
         </div>
         <div className="card overflow-hidden">

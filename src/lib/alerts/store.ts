@@ -1,7 +1,7 @@
 // Alerts are kept on the host device only, in IndexedDB, trimmed to the admin's limit (newest kept).
 import type { AlertRecord } from "@/lib/alerts/types";
 
-const DB_NAME = "ip-camera-alerts";
+const DB_NAME = "ip-camera-alerts"; // pre-rename name, kept so saved alerts survive
 const STORE = "alerts";
 const BY_ACCOUNT_TIME = "byAccountTs";
 

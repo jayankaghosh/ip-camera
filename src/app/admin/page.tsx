@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { AdminSettings } from "@/components/AdminSettings";
 import { HostAccounts } from "@/components/HostAccounts";
 import { Icon } from "@/components/icons";
+import { Logo } from "@/components/Logo";
 import { Avatar, CardHeader, ErrorMessage, Field, FormCard, Screen, SubmitButton } from "@/components/ui";
 import { openSignaling, type RoomSummary } from "@/lib/rtc";
 
@@ -81,8 +82,8 @@ export default function AdminPage() {
     return (
       <Screen>
         <FormCard>
-          <CardHeader icon="shield" title="Admin">
-            Log in to manage hosts and see all live streams.
+          <CardHeader icon="shield" title="FurCam admin">
+            Log in to manage hosts and see all live pet cams.
           </CardHeader>
           <form onSubmit={login} className="flex flex-col gap-4">
             <Field label="Username" name="username" required autoComplete="username" autoCapitalize="none" />
@@ -104,10 +105,10 @@ export default function AdminPage() {
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-5 p-4 sm:p-6">
       <header className="flex flex-wrap items-center gap-3">
-        <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-white">
-          <Icon name="shield" className="h-5 w-5" />
-        </span>
-        <h1 className="text-xl font-semibold tracking-tight">Admin</h1>
+        <Logo size={40} />
+        <h1 className="text-xl font-semibold tracking-tight">
+          FurCam <span className="font-normal text-muted">Admin</span>
+        </h1>
         <button onClick={logout} className="btn btn-sm btn-secondary ml-auto">
           <Icon name="logOut" className="h-4 w-4" /> Log out
         </button>

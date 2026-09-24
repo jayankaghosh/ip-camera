@@ -39,7 +39,7 @@ const SPEAKING_HOLD_MS = 700;
 const KINDS: MediaKind[] = ["audio", "video"];
 
 // The host's alert choices are remembered per account on this device, so areas needn't be redrawn.
-const configKey = (account: string) => `ip-camera:alerts:${account}`;
+const configKey = (account: string) => `ip-camera:alerts:${account}`; // pre-rename key, kept on purpose
 function loadAlertConfig(account: string): AlertConfig {
   try {
     return { ...DEFAULT_ALERT_CONFIG, ...JSON.parse(localStorage.getItem(configKey(account)) ?? "{}") };

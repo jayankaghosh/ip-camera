@@ -1,4 +1,6 @@
-# IP Camera
+# FurCam
+
+A pet cam: turn a spare phone into a camera for your pets, then watch live and get alerts.
 
 Turn one device into a live camera; watch it from another with a 6-character code.
 
@@ -101,7 +103,7 @@ proxied to Next.js.
 # on the server, in /var/www/html/ipcamera
 npm ci && npm run build
 cp .env.example .env && nano .env            # set the admin login
-TRUST_PROXY=1 PORT=8908 pm2 start npm --name ip-camera -- start
+TRUST_PROXY=1 PORT=8908 pm2 start npm --name furcam -- start
 
 sudo ln -s /var/www/html/ipcamera/nginx-server-block.conf /etc/nginx/sites-enabled/ipcamera
 sudo certbot --nginx -d ipcam.jayanka.in   # adds the ssl_certificate lines

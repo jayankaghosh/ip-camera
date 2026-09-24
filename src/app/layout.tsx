@@ -2,8 +2,10 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "IP Camera",
-  description: "Stream a camera to a password-protected viewer over WebRTC",
+  title: { default: "FurCam", template: "%s · FurCam" },
+  description: "A pet cam for your phone: watch your pets live and get alerts when they move or meow.",
+  applicationName: "FurCam",
+  appleWebApp: { title: "FurCam", capable: true, statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {
