@@ -1,14 +1,21 @@
-// Cat-sound detection with Google's YAMNet audio classifier (it knows the AudioSet classes "Cat",
-// "Meow", "Caterwaul"…), running entirely in the browser via MediaPipe. Audio never leaves the device.
+// Sound alerts (cats, dogs, crashes) with Google's YAMNet audio classifier, which scores all 521
+// AudioSet sound classes every second, running entirely in the browser via MediaPipe. Watching for
+// more kinds costs nothing extra. Audio never leaves the device.
 // The WebAssembly runtime is served from /mediapipe (copied from node_modules at build time); the
 // ~4 MB model is fetched once from Google and then cached by the browser.
 import type { AudioClassifier } from "@mediapipe/tasks-audio";
-import type { Sensitivity } from "@/lib/alerts/types";
+import type { Sensitivity, SoundKind } from "@/lib/alerts/types";
 
 const MODEL_URL =
   process.env.NEXT_PUBLIC_YAMNET_MODEL_URL ??
   "https://storage.googleapis.com/mediapipe-models/audio_classifier/yamnet/float32/1/yamnet.tflite";
-const CAT_LABELS = new Set(["Cat", "Meow", "Caterwaul", "Purr", "Hiss"]);
+/** YAMNet label names (exactly as in the model's label list) that count as each kind of alert. */
+const LABELS: Record<SoundKind, Set<string>> = {
+  meow: new Set(["Cat", "Meow", "Caterwaul", "Purr", "Hiss"]),
+  bark: new Set(["Dog", "Bark", "Yip", "Howl", "Bow-wow", "Growling", "Whimper (dog)"]),
+  // Not "Knock" (usually the door) or "Crack" (fireworks, knuckles…).
+  crash: new Set(["Smash, crash", "Thump, thud", "Thunk", "Bang", "Slam", "Breaking", "Shatter", "Clatter"]),
+};
 const MIN_SCORE: Record<Sensitivity, number> = { high: 0.15, medium: 0.3, low: 0.5 };
 /** YAMNet looks at ~1 s of audio; classify once per second. */
 const WINDOW_SECONDS = 1;
@@ -31,7 +38,7 @@ function loadClassifier() {
   return classifierPromise;
 }
 
-export class MeowDetector {
+export class SoundDetector {
   private context: AudioContext | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private processor: ScriptProcessorNode | null = null;
@@ -40,13 +47,18 @@ export class MeowDetector {
 
   private constructor(
     private classifier: AudioClassifier,
+    private kinds: SoundKind[],
     private sensitivity: Sensitivity,
-    private onMeow: (score: number, label: string) => void,
+    private onSound: (kind: SoundKind, score: number, label: string) => void,
   ) {}
 
   /** Downloads the model on first use (this is the slow part). */
-  static async create(sensitivity: Sensitivity, onMeow: (score: number, label: string) => void) {
-    return new MeowDetector(await loadClassifier(), sensitivity, onMeow);
+  static async create(
+    kinds: SoundKind[],
+    sensitivity: Sensitivity,
+    onSound: (kind: SoundKind, score: number, label: string) => void,
+  ) {
+    return new SoundDetector(await loadClassifier(), kinds, sensitivity, onSound);
   }
 
   /** Listen to this mic track, or pause with null (e.g. the host's mic was turned off). */
@@ -93,12 +105,15 @@ export class MeowDetector {
   }
 
   private classify(audio: Float32Array, rate: number) {
-    let best = { score: 0, label: "" };
-    for (const result of this.classifier.classify(audio, rate)) {
-      for (const c of result.classifications[0]?.categories ?? []) {
-        if (CAT_LABELS.has(c.categoryName) && c.score > best.score) best = { score: c.score, label: c.categoryName };
+    const results = this.classifier.classify(audio, rate);
+    for (const kind of this.kinds) {
+      let best = { score: 0, label: "" };
+      for (const result of results) {
+        for (const c of result.classifications[0]?.categories ?? []) {
+          if (LABELS[kind].has(c.categoryName) && c.score > best.score) best = { score: c.score, label: c.categoryName };
+        }
       }
+      if (best.score >= MIN_SCORE[this.sensitivity]) this.onSound(kind, best.score, best.label);
     }
-    if (best.score >= MIN_SCORE[this.sensitivity]) this.onMeow(best.score, best.label);
   }
 }

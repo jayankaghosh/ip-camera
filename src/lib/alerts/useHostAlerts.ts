@@ -2,18 +2,18 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createAlertSender, type ReceivedAlert } from "@/lib/alerts/channel";
-import { MeowDetector } from "@/lib/alerts/meow";
+import { SoundDetector } from "@/lib/alerts/sound";
 import { MotionDetector } from "@/lib/alerts/motion";
 import { publishToNtfy } from "@/lib/alerts/ntfy";
 import type { NtfyTarget } from "@/lib/rtc";
 import { addAlert, listAlerts, pruneAlerts } from "@/lib/alerts/store";
-import type { AlertConfig, AlertRecord, AlertType } from "@/lib/alerts/types";
+import { enabledSounds, type AlertConfig, type AlertRecord, type AlertType } from "@/lib/alerts/types";
 
 /** One alert per type at most this often, so a cat pacing around doesn't produce dozens. */
 const COOLDOWN_MS = 15_000;
 const SNAPSHOT_WIDTH = 480;
 
-export type MeowStatus = "off" | "loading" | "listening" | "paused" | "error";
+export type SoundStatus = "off" | "loading" | "listening" | "paused" | "error";
 export type NtfyStatus = { state: "idle" } | { state: "sent"; at: number } | { state: "failed"; at: number; error: string };
 
 function toView(r: AlertRecord): ReceivedAlert {
@@ -61,15 +61,15 @@ export function useHostAlerts({
   ntfy: NtfyTarget | null;
 }) {
   const [alerts, setAlerts] = useState<ReceivedAlert[]>([]);
-  const [meowReady, setMeowReady] = useState(false);
-  const [meowError, setMeowError] = useState<string | null>(null);
+  const [soundReady, setSoundReady] = useState(false);
+  const [soundError, setSoundError] = useState<string | null>(null);
   const [ntfyStatus, setNtfyStatus] = useState<NtfyStatus>({ state: "idle" });
 
   // Latest values for the async callbacks below.
   const recordsRef = useRef<AlertRecord[]>([]);
   const sendersRef = useRef(new Set<ReturnType<typeof createAlertSender>>());
   const lastFiredRef = useRef(new Map<AlertType, number>());
-  const meowRef = useRef<MeowDetector | null>(null);
+  const soundRef = useRef<SoundDetector | null>(null);
   const latest = useRef({ account, streamCode, maxAlerts, getMicTrack, ntfy });
   useEffect(() => {
     latest.current = { account, streamCode, maxAlerts, getMicTrack, ntfy };
@@ -140,41 +140,43 @@ export function useHostAlerts({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- zonesKey stands in for config.zones
   }, [live, config.movement, zonesKey, config.sensitivity]);
 
-  // Meow detector: loads the model once, listens while live and the host's mic is on.
+  // Sound detector (meow / dog / crash): loads the model once, listens while live and the mic is on.
+  const sounds = enabledSounds(config);
+  const soundsKey = sounds.join(",");
   useEffect(() => {
-    if (!live || !config.meow) return;
+    if (!live || sounds.length === 0) return;
     let cancelled = false;
-    MeowDetector.create(config.sensitivity, (score, label) => fire("meow", `${label} · ${Math.round(score * 100)}%`))
+    SoundDetector.create(sounds, config.sensitivity, (kind, score, label) => fire(kind, `${label} · ${Math.round(score * 100)}%`))
       .then((detector) => {
         if (cancelled) return detector.stop();
-        meowRef.current = detector;
+        soundRef.current = detector;
         detector.setTrack(latest.current.getMicTrack());
-        setMeowError(null);
-        setMeowReady(true);
+        setSoundError(null);
+        setSoundReady(true);
       })
-      .catch((err) => !cancelled && setMeowError(err instanceof Error ? err.message : String(err)));
+      .catch((err) => !cancelled && setSoundError(err instanceof Error ? err.message : String(err)));
     return () => {
       cancelled = true;
-      meowRef.current?.stop();
-      meowRef.current = null;
-      setMeowReady(false);
+      soundRef.current?.stop();
+      soundRef.current = null;
+      setSoundReady(false);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire reads the latest values through refs
-  }, [live, config.meow, config.sensitivity]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- soundsKey stands in for sounds; fire reads refs
+  }, [live, soundsKey, config.sensitivity]);
 
   // Follow the host's mic being switched off/on (by the host or a viewer).
   useEffect(() => {
-    meowRef.current?.setTrack(micOn ? latest.current.getMicTrack() : null);
-  }, [micOn, meowReady]);
+    soundRef.current?.setTrack(micOn ? latest.current.getMicTrack() : null);
+  }, [micOn, soundReady]);
 
-  const meowStatus: MeowStatus =
-    !live || !config.meow ? "off" : meowError ? "error" : !meowReady ? "loading" : micOn ? "listening" : "paused";
+  const soundStatus: SoundStatus =
+    !live || sounds.length === 0 ? "off" : soundError ? "error" : !soundReady ? "loading" : micOn ? "listening" : "paused";
 
   return {
     /** Only this stream's alerts; older streams' stay saved on the device (up to the limit) but hidden. */
     alerts: alerts.filter((a) => a.streamCode === streamCode),
-    meowStatus,
-    meowError,
+    soundStatus,
+    soundError,
     ntfyStatus,
     /** Hook up a new viewer's data channel: history once it opens, then live alerts. */
     attach(channel: RTCDataChannel) {

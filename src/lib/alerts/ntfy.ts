@@ -13,7 +13,7 @@ export async function publishToNtfy(server: string, topic: string, alert: AlertR
   const params = new URLSearchParams({
     title: `${ALERT_LABELS[alert.type]} alert · FurCam`,
     message: `${alert.detail} at ${time}`,
-    tags: alert.type === "meow" ? "cat" : "paw_prints",
+    tags: { movement: "paw_prints", meow: "cat", bark: "dog", crash: "boom" }[alert.type],
     priority: "4",
     click: `${location.origin}/?code=${alert.streamCode}`,
   });

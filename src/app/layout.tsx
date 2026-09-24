@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: { default: "FurCam", template: "%s · FurCam" },
-  description: "A pet cam for your phone: watch your pets live and get alerts when they move or meow.",
+  description: "A pet cam for your phone: watch your pets live and get alerts for movement, meows, barks and crashes.",
   applicationName: "FurCam",
   appleWebApp: { title: "FurCam", capable: true, statusBarStyle: "default" },
 };

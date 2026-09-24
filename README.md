@@ -24,7 +24,8 @@ Several hosts can be live at the same time; each has its own code.
 
 - **Movement**: drag boxes on the camera preview; movement inside any box triggers an alert
   (2 tiny frames per second are compared, so it's light on battery).
-- **Meow**: Google's YAMNet sound model listens for cats, entirely on the host device. The ~6 MB
+- **Meow / Dog / Crashes & bangs**: Google's YAMNet sound model listens for cat sounds, dog sounds
+  (barks, howls, growls, whimpers) and crashes/thuds/bangs, entirely on the host device. The ~6 MB
   runtime is served from `/mediapipe` (copied from `node_modules` by `npm run dev`/`build`) and the
   ~4 MB model is downloaded once from Google (override with `NEXT_PUBLIC_YAMNET_MODEL_URL`).
 

@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "FurCam",
     short_name: "FurCam",
-    description: "Watch your pets live and get alerts when they move or meow.",
+    description: "Watch your pets live and get alerts for movement, meows, barks and crashes.",
     start_url: "/",
     display: "standalone",
     background_color: "#f5f5f7",

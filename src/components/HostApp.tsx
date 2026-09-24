@@ -8,7 +8,7 @@ import { ZoneEditor } from "@/components/ZoneEditor";
 import { ALERT_CHANNEL } from "@/lib/alerts/channel";
 import { exportAlertsZip } from "@/lib/alerts/export";
 import { ntfyTopicUrl } from "@/lib/alerts/ntfy";
-import { DEFAULT_ALERT_CONFIG, type AlertConfig, type Sensitivity } from "@/lib/alerts/types";
+import { anyAlertsOn, DEFAULT_ALERT_CONFIG, enabledSounds, type AlertConfig, type Sensitivity } from "@/lib/alerts/types";
 import { useHostAlerts } from "@/lib/alerts/useHostAlerts";
 import { TalkIndicator } from "@/components/TalkIndicator";
 import { Avatar, CardHeader, ErrorMessage, Field, FormCard, Screen, Spinner, SubmitButton } from "@/components/ui";
@@ -452,7 +452,9 @@ export function HostApp({ onBack }: { onBack: () => void }) {
               {(
                 [
                   ["movement", "move", "Movement", "In areas you draw on the camera next."],
-                  ["meow", "paw", "Meow", "Listens for cats. Downloads a ~10 MB sound model the first time."],
+                  ["meow", "paw", "Meow", "Cat sounds: meows, purrs, hisses."],
+                  ["bark", "dog", "Dog", "Barks, howls, growls and whimpers."],
+                  ["crash", "burst", "Crashes & bangs", "Something knocked over, dropped or broken."],
                 ] as const
               ).map(([key, icon, title, text]) => (
                 <label key={key} className="flex cursor-pointer items-center gap-3 rounded-xl bg-surface-2 px-3.5 py-3">
@@ -469,7 +471,12 @@ export function HostApp({ onBack }: { onBack: () => void }) {
                   />
                 </label>
               ))}
-              {(alertConfig.movement || alertConfig.meow) && (
+              {enabledSounds(alertConfig).length > 0 && (
+                <p className="px-1 text-xs leading-relaxed text-muted">
+                  Sounds are recognised on this device. The first time, it downloads a ~10 MB sound model.
+                </p>
+              )}
+              {anyAlertsOn(alertConfig) && (
                 <div className="flex items-center justify-between gap-3 px-1 pt-1">
                   <span className="text-sm text-muted">Sensitivity</span>
                   <div className="flex gap-1 rounded-xl bg-surface-2 p-1" role="radiogroup" aria-label="Sensitivity">
@@ -666,9 +673,9 @@ export function HostApp({ onBack }: { onBack: () => void }) {
         )}
       </aside>
 
-      {(alertConfig.movement || alertConfig.meow || hostAlerts.alerts.length > 0) && (
+      {(anyAlertsOn(alertConfig) || hostAlerts.alerts.length > 0) && (
         <section className="card flex flex-col gap-3 p-4">
-          {ntfy && (alertConfig.movement || alertConfig.meow) && (
+          {ntfy && anyAlertsOn(alertConfig) && (
             <div className="flex flex-col gap-2 rounded-xl bg-surface-2 p-3">
               <span className="flex items-center gap-1.5 text-xs font-semibold text-muted">
                 <Icon name="bell" className="h-3.5 w-3.5" /> ntfy topic name
@@ -703,7 +710,7 @@ export function HostApp({ onBack }: { onBack: () => void }) {
               </p>
             </div>
           )}
-          {(alertConfig.movement || alertConfig.meow) && (
+          {anyAlertsOn(alertConfig) && (
             <div className="flex flex-wrap gap-1.5 px-1">
               {alertConfig.movement && (
                 <span className={`chip ${media.video ? "bg-success/15 text-success" : "bg-surface-2 text-muted"}`}>
@@ -711,19 +718,27 @@ export function HostApp({ onBack }: { onBack: () => void }) {
                   {media.video ? `Watching ${alertConfig.zones.length} area${alertConfig.zones.length > 1 ? "s" : ""}` : "Movement paused · camera off"}
                 </span>
               )}
-              {alertConfig.meow && (
+              {enabledSounds(alertConfig).length > 0 && (
                 <span
-                  title={hostAlerts.meowError ?? undefined}
+                  title={hostAlerts.soundError ?? undefined}
                   className={`chip ${
-                    hostAlerts.meowStatus === "listening"
+                    hostAlerts.soundStatus === "listening"
                       ? "bg-success/15 text-success"
-                      : hostAlerts.meowStatus === "error"
+                      : hostAlerts.soundStatus === "error"
                         ? "bg-danger/12 text-danger"
                         : "bg-surface-2 text-muted"
                   }`}
                 >
-                  <Icon name="paw" className="h-3 w-3" />
-                  {{ off: "Meow off", loading: "Loading sound model…", listening: "Listening for meows", paused: "Meow paused · mic off", error: "Meow unavailable" }[hostAlerts.meowStatus]}
+                  <Icon name="mic" className="h-3 w-3" />
+                  {{
+                    off: "Sounds off",
+                    loading: "Loading sound model…",
+                    listening: `Listening for ${enabledSounds(alertConfig)
+                      .map((k) => ({ meow: "meows", bark: "dogs", crash: "crashes" })[k])
+                      .join(", ")}`,
+                    paused: "Sounds paused · mic off",
+                    error: "Sound alerts unavailable",
+                  }[hostAlerts.soundStatus]}
                 </span>
               )}
             </div>

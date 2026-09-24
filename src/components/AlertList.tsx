@@ -6,8 +6,13 @@ import { Spinner } from "@/components/ui";
 import type { ReceivedAlert } from "@/lib/alerts/channel";
 import { ALERT_LABELS, type AlertType } from "@/lib/alerts/types";
 
-const TYPE_ICON = { movement: "move", meow: "paw" } as const satisfies Record<AlertType, string>;
-const TYPE_TONE: Record<AlertType, string> = { movement: "bg-warning/15 text-warning", meow: "bg-accent/12 text-accent" };
+const TYPE_ICON = { movement: "move", meow: "paw", bark: "dog", crash: "burst" } as const satisfies Record<AlertType, string>;
+const TYPE_TONE: Record<AlertType, string> = {
+  movement: "bg-warning/15 text-warning",
+  meow: "bg-accent/12 text-accent",
+  bark: "bg-accent/12 text-accent",
+  crash: "bg-danger/12 text-danger",
+};
 
 function time(ts: number) {
   const d = new Date(ts);
