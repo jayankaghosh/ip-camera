@@ -5,13 +5,15 @@ import { useEffect, useRef, useState } from "react";
 const NAME_KEY = "ip-camera:name";
 
 export function JoinForm({
+  initialCode = "",
   busy,
   error,
   onSubmit,
 }: {
+  initialCode?: string;
   busy: boolean;
   error: string | null;
-  onSubmit: (name: string, code: string) => void;
+  onSubmit: (name: string, code: string, password: string) => void;
 }) {
   const nameRef = useRef<HTMLInputElement>(null);
 
@@ -22,7 +24,8 @@ export function JoinForm({
       if (saved && nameRef.current && !nameRef.current.value) nameRef.current.value = saved;
     } catch {}
   }, []);
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(initialCode);
+  const [password, setPassword] = useState("");
   const inputClass =
     "rounded-lg border border-neutral-300 dark:border-neutral-700 bg-transparent px-4 py-3 outline-none focus:border-blue-500";
 
@@ -35,7 +38,7 @@ export function JoinForm({
         try {
           localStorage.setItem(NAME_KEY, name);
         } catch {}
-        onSubmit(name, code);
+        onSubmit(name, code, password);
       }}
     >
       <div>
@@ -62,6 +65,15 @@ export function JoinForm({
         value={code}
         onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
         className={`${inputClass} font-mono text-lg tracking-[0.3em] uppercase`}
+      />
+      <input
+        type="password"
+        maxLength={64}
+        autoComplete="off"
+        placeholder="Password (only if the host set one)"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        className={inputClass}
       />
       {error && <p className="text-sm text-red-500">{error}</p>}
       <button

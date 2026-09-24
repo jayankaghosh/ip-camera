@@ -2,11 +2,20 @@
 
 Turn one device into a live camera; watch it from another with a 6-character code.
 
-- **Host** grants camera + mic, goes live, and gets a unique code (e.g. `J74TXD`). The host sees the
-  name of everyone currently watching.
-- **Viewer** enters their name and the code and gets the live video + audio.
+- **Host** optionally sets a password, grants camera + mic, goes live, and gets a unique code
+  (e.g. `J74TXD`). The host sees everyone watching, can remove any viewer, and can turn their own
+  mic/camera off and on.
+- **Viewer** enters their name, the code, and the password (if the host set one) and gets the live
+  video + audio. Viewers can also turn the host's mic/camera off and on.
+- **Admin** (`/admin`, login from `.env`) sees every live stream with its code, password, mic/camera
+  state and viewers, and can watch any stream without its password. The host sees admins as
+  "Admin" in their viewer list.
 
 Several hosts can be live at the same time; each has its own code.
+
+**Mic/camera off really means off**: the host's device is released (camera light goes out, no
+encoding, nothing sent), which saves battery. The connections stay open, so switching back on
+resumes within a second without reconnecting.
 
 ## How it works
 
@@ -17,16 +26,24 @@ Media is sent with **WebRTC**, browser to browser (peer-to-peer):
 - Encrypted end-to-end with DTLS-SRTP; bitrate adapts to the network automatically.
 
 `server.mjs` is a custom Next.js server that also runs a WebSocket at `/ws`. It generates each host's
-code (from `A–Z`/`2–9`, skipping look-alikes `0 O 1 I L`), admits viewers with a valid code
-(5 wrong codes → 1-minute lockout per IP), tells the host who joined or left, and relays the WebRTC
-handshake. A code stops working as soon as its host stops. Video never passes through the server.
+code (from `A–Z`/`2–9`, skipping look-alikes `0 O 1 I L`), admits viewers with a valid code and
+password (5 wrong tries → 1-minute lockout per IP), tells the host who joined or left, relays the
+WebRTC handshake and the mic/camera/remove commands, and serves the admin login at `/api/admin/*`.
+Everything is kept in memory: a code stops working as soon as its host stops, and a server restart
+ends all streams and admin sessions. Video never passes through the server.
+
+Stream passwords are kept in plain text in memory (so the admin can see them) and never written to
+disk.
 
 ## Run
 
 ```bash
 npm install
+cp .env.example .env # then set ADMIN_USERNAME / ADMIN_PASSWORD
 npm run dev          # http://localhost:8908
 ```
+
+Leave `ADMIN_USERNAME` / `ADMIN_PASSWORD` empty to disable `/admin`.
 
 Production: `npm run build && npm start`.
 
@@ -60,6 +77,7 @@ proxied to Next.js.
 ```bash
 # on the server, in /var/www/html/ipcamera
 npm ci && npm run build
+cp .env.example .env && nano .env            # set the admin login
 TRUST_PROXY=1 PORT=8908 pm2 start npm --name ip-camera -- start
 
 sudo ln -s /var/www/html/ipcamera/nginx-server-block.conf /etc/nginx/sites-enabled/ipcamera

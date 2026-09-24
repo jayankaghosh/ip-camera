@@ -1,16 +1,32 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { JoinForm } from "@/components/JoinForm";
-import { createQueue, openSignaling, rtcConfig } from "@/lib/rtc";
+import { MediaButton } from "@/components/MediaButton";
+import { createQueue, openSignaling, rtcConfig, type MediaKind, type MediaState } from "@/lib/rtc";
 
 type Stats = { codec: string; resolution: string; fps: number; kbps: number };
 
 export default function ViewPage() {
+  return (
+    <Suspense fallback={null}>
+      <Viewer />
+    </Suspense>
+  );
+}
+
+function Viewer() {
+  const params = useSearchParams();
+  const initialCode = (params.get("code") ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  const asAdmin = params.get("admin") === "1" && initialCode.length === 6;
+
   const [status, setStatus] = useState<"login" | "joining" | "connecting" | "watching">("login");
   const [error, setError] = useState<string | null>(null);
   const [needsTap, setNeedsTap] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [media, setMedia] = useState<MediaState>({ audio: true, video: true, changedBy: null });
+  const [pending, setPending] = useState<MediaKind | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -30,6 +46,7 @@ export default function ViewPage() {
     stopAll();
     setError(message);
     setStats(null);
+    setPending(null);
     setStatus("login");
   }
 
@@ -71,7 +88,7 @@ export default function ViewPage() {
     return () => clearInterval(timer);
   }, [status]);
 
-  async function join(name: string, code: string) {
+  async function join(name: string, code: string, password: string) {
     setError(null);
     setStatus("joining");
     const enqueue = createQueue();
@@ -79,7 +96,15 @@ export default function ViewPage() {
       const ws = await openSignaling((msg) => {
         if (msg.type === "error") return fail(msg.message);
         if (msg.type === "host-left") return fail("The host stopped broadcasting.");
-        if (msg.type === "join-ok") return setStatus("connecting");
+        if (msg.type === "kicked") return fail("The host removed you from this stream.");
+        if (msg.type === "join-ok") {
+          setMedia(msg.media);
+          return setStatus("connecting");
+        }
+        if (msg.type === "media-state") {
+          setMedia(msg.media);
+          return setPending(null);
+        }
         if (msg.type !== "signal") return;
 
         const { data } = msg;
@@ -110,16 +135,42 @@ export default function ViewPage() {
       ws.onclose = () => {
         if (wsRef.current === ws) fail("Lost connection to the server.");
       };
-      ws.send(JSON.stringify({ type: "join", name, code }));
+      ws.send(JSON.stringify({ type: "join", name, code, password, asAdmin }));
     } catch (err) {
       fail((err as Error).message);
     }
   }
 
+  // Asks the host device to switch its mic/camera; the button updates once the host confirms.
+  function toggle(kind: MediaKind) {
+    setPending(kind);
+    setTimeout(() => setPending(null), 5000); // don't lock the buttons if the host never answers
+    wsRef.current?.send(JSON.stringify({ type: "set-media", kind, enabled: !media[kind] }));
+  }
+
   if (status === "login" || status === "joining") {
     return (
       <main className="flex flex-1 items-center justify-center p-6">
-        <JoinForm busy={status === "joining"} error={error} onSubmit={join} />
+        {asAdmin ? (
+          <div className="w-full max-w-sm flex flex-col gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold">Watch as admin</h1>
+              <p className="text-sm text-neutral-500 mt-1">
+                Stream <span className="font-mono">{initialCode}</span>. The host will see you as &quot;Admin&quot;.
+              </p>
+            </div>
+            {error && <p className="text-sm text-red-500">{error}</p>}
+            <button
+              onClick={() => join("", initialCode, "")}
+              disabled={status === "joining"}
+              className="rounded-lg bg-blue-600 text-white py-3 font-medium hover:bg-blue-700 disabled:opacity-50"
+            >
+              {status === "joining" ? "Please wait…" : "Watch"}
+            </button>
+          </div>
+        ) : (
+          <JoinForm initialCode={initialCode} busy={status === "joining"} error={error} onSubmit={join} />
+        )}
       </main>
     );
   }
@@ -133,13 +184,24 @@ export default function ViewPage() {
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-4 p-4">
       <div className="relative w-full max-w-4xl">
-        <video ref={videoRef} autoPlay playsInline controls className="w-full rounded-xl bg-black" />
-        {stats && (
+        <video ref={videoRef} autoPlay playsInline controls className="w-full rounded-xl bg-black aspect-video object-contain" />
+        {!media.video && (
+          <div className="pointer-events-none absolute inset-0 bottom-12 flex flex-col items-center justify-center rounded-t-xl bg-neutral-900 text-neutral-400">
+            <span>Camera is off</span>
+            {media.changedBy && <span className="text-xs mt-1">Turned off by {media.changedBy}</span>}
+          </div>
+        )}
+        {stats && media.video && (
           <div className="absolute left-3 top-3 rounded-md bg-black/60 px-2 py-1 font-mono text-xs text-white">
             {stats.codec} · {stats.resolution} · {stats.fps}fps · {stats.kbps} kbps
           </div>
         )}
-        {needsTap && (
+        {!media.audio && (
+          <span className="absolute right-3 top-3 rounded-md bg-red-600 px-2 py-1 text-xs text-white">
+            Host mic off{media.changedBy ? ` · ${media.changedBy}` : ""}
+          </span>
+        )}
+        {needsTap && media.audio && (
           <button
             onClick={() => {
               if (videoRef.current) videoRef.current.muted = false;
@@ -151,16 +213,21 @@ export default function ViewPage() {
           </button>
         )}
       </div>
-      <button
-        onClick={() => {
-          stopAll();
-          setStats(null);
-          setStatus("login");
-        }}
-        className="rounded-lg bg-neutral-800 text-white px-6 py-3 hover:bg-neutral-700"
-      >
-        Leave
-      </button>
+      <div className="flex items-center gap-3">
+        <MediaButton kind="audio" enabled={media.audio} disabled={pending !== null} onToggle={() => toggle("audio")} />
+        <MediaButton kind="video" enabled={media.video} disabled={pending !== null} onToggle={() => toggle("video")} />
+        <button
+          onClick={() => {
+            stopAll();
+            setStats(null);
+            setStatus("login");
+          }}
+          className="rounded-lg bg-neutral-800 text-white px-6 py-3 hover:bg-neutral-700"
+        >
+          Leave
+        </button>
+      </div>
+      <p className="text-xs text-neutral-500">The mic and camera buttons switch the host&apos;s device on or off for everyone.</p>
     </main>
   );
 }

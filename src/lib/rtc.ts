@@ -1,10 +1,26 @@
+export type MediaKind = "audio" | "video";
+/** Whether the host device's mic/camera are on, and who changed them last. */
+export type MediaState = { audio: boolean; video: boolean; changedBy: string | null };
+
+export type RoomSummary = {
+  code: string;
+  password: string | null;
+  createdAt: number;
+  media: MediaState;
+  viewers: { name: string; isAdmin: boolean; joinedAt: number }[];
+};
+
 export type ServerMessage =
   | { type: "error"; message: string }
   | { type: "host-ok"; code: string }
-  | { type: "join-ok" }
+  | { type: "join-ok"; media: MediaState }
   | { type: "host-left" }
-  | { type: "viewer-joined"; viewerId: string; name: string }
+  | { type: "kicked" }
+  | { type: "viewer-joined"; viewerId: string; name: string; isAdmin: boolean }
   | { type: "viewer-left"; viewerId: string }
+  | { type: "set-media"; kind: MediaKind; enabled: boolean; by?: string }
+  | { type: "media-state"; media: MediaState }
+  | { type: "rooms"; rooms: RoomSummary[] }
   | { type: "signal"; from?: string; data: SignalData };
 
 export type SignalData =
