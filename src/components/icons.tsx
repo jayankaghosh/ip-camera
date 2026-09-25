@@ -79,6 +79,13 @@ const PATHS = {
     </>
   ),
   burst: <path d="M12 2.5l1.8 5.2 5-2.3-2.3 5 5.2 1.8-5.2 1.8 2.3 5-5-2.3-1.8 5.2-1.8-5.2-5 2.3 2.3-5L2.3 12.2l5.2-1.8-2.3-5 5 2.3L12 2.5Z" />,
+  smartphone: (
+    <>
+      <rect x="6.5" y="2.5" width="11" height="19" rx="2.5" />
+      <path d="M10.5 18.5h3" />
+    </>
+  ),
+  bolt: <path d="M13 2.5 5 13.5h6l-1 8 8-11h-6l1-8Z" />,
   move: (
     <>
       <rect x="3.5" y="3.5" width="17" height="17" rx="3" strokeDasharray="3 3" />

@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertList } from "@/components/AlertList";
+import { DeviceInfoPopup } from "@/components/DeviceInfoPopup";
 import { Icon } from "@/components/icons";
 import { CardHeader, ErrorMessage, FormCard, Screen, Spinner } from "@/components/ui";
 import { JoinForm } from "@/components/JoinForm";
 import { MediaButton } from "@/components/MediaButton";
 import { ALERT_CHANNEL, receiveAlerts, type ReceivedAlert } from "@/lib/alerts/channel";
 import { exportAlertsZip } from "@/lib/alerts/export";
+import { DEVICE_CHANNEL } from "@/lib/device";
 import { createQueue, openSignaling, rtcConfig, type MediaKind, type MediaState } from "@/lib/rtc";
 
 type Stats = { codec: string; resolution: string; fps: number; kbps: number };
@@ -33,6 +35,10 @@ export function ViewerApp({
   const [alerts, setAlerts] = useState<ReceivedAlert[]>([]);
   const [streamCode, setStreamCode] = useState(initialCode);
   const stopAlertsRef = useRef<(() => void) | null>(null);
+  // The host's "device" data channel (battery, OS, network…) and whether its popup is open.
+  const [deviceChannel, setDeviceChannel] = useState<RTCDataChannel | null>(null);
+  const [showDevice, setShowDevice] = useState(false);
+  const closeDevice = useCallback(() => setShowDevice(false), []);
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<HTMLDivElement>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
@@ -53,6 +59,8 @@ export function ViewerApp({
     talkSenderRef.current = null;
     stopAlertsRef.current?.(); // frees the snapshot images
     stopAlertsRef.current = null;
+    setDeviceChannel(null);
+    setShowDevice(false);
   }
 
   useEffect(() => stopAll, []);
@@ -136,6 +144,12 @@ export function ViewerApp({
           };
           // The host's alerts: full history first, then new ones as they happen.
           pc.ondatachannel = (e) => {
+            if (e.channel.label === DEVICE_CHANNEL) {
+              const channel = e.channel;
+              channel.onopen = () => setDeviceChannel(channel);
+              if (channel.readyState === "open") setDeviceChannel(channel);
+              return;
+            }
             if (e.channel.label !== ALERT_CHANNEL) return;
             stopAlertsRef.current?.();
             stopAlertsRef.current = receiveAlerts(e.channel, (list) => setAlerts([...list]));
@@ -290,12 +304,24 @@ export function ViewerApp({
           ) : (
             <span />
           )}
-          {!media.audio && (
-            <span className="on-video flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium">
-              <Icon name="mic" slash className="h-3.5 w-3.5" />
-              Host mic off{media.changedBy ? ` · ${media.changedBy}` : ""}
-            </span>
-          )}
+          <div className="flex items-start gap-2">
+            {!media.audio && (
+              <span className="on-video flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium">
+                <Icon name="mic" slash className="h-3.5 w-3.5" />
+                Host mic off{media.changedBy ? ` · ${media.changedBy}` : ""}
+              </span>
+            )}
+            {deviceChannel && (
+              <button
+                onClick={() => setShowDevice(true)}
+                title="Host device info"
+                aria-label="Host device info"
+                className="on-video inline-flex h-9 w-9 items-center justify-center transition-colors hover:bg-black/75"
+              >
+                <Icon name="smartphone" className="h-[18px] w-[18px]" />
+              </button>
+            )}
+          </div>
         </div>
         {needsTap && media.audio && (
           <button
@@ -333,6 +359,7 @@ export function ViewerApp({
           </div>
         </div>
       </div>
+      {showDevice && deviceChannel && <DeviceInfoPopup channel={deviceChannel} onClose={closeDevice} />}
       <ErrorMessage>{micError}</ErrorMessage>
       <section className="card p-4">
         <AlertList

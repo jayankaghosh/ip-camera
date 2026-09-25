@@ -10,6 +10,7 @@ import { exportAlertsZip } from "@/lib/alerts/export";
 import { ntfyTopicUrl } from "@/lib/alerts/ntfy";
 import { anyAlertsOn, DEFAULT_ALERT_CONFIG, enabledSounds, type AlertConfig, type Sensitivity } from "@/lib/alerts/types";
 import { useHostAlerts } from "@/lib/alerts/useHostAlerts";
+import { collectDeviceInfo, DEVICE_CHANNEL, watchCpuPressure } from "@/lib/device";
 import { TalkIndicator } from "@/components/TalkIndicator";
 import { Avatar, CardHeader, ErrorMessage, Field, FormCard, Screen, Spinner, SubmitButton } from "@/components/ui";
 import {
@@ -86,6 +87,7 @@ export function HostApp({ onBack }: { onBack: () => void }) {
   const peersRef = useRef(new Map<string, Peer>());
   const mediaQueueRef = useRef(createQueue());
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  const liveSinceRef = useRef(0);
 
   function stopAll() {
     wsRef.current?.close();
@@ -265,6 +267,18 @@ export function HostApp({ onBack }: { onBack: () => void }) {
     speaker.play().catch(() => setVoicesBlocked(true)); // normally allowed: the host clicked "Start camera"
     // Alerts go to this viewer over a data channel: history when it opens, then live.
     hostAlerts.attach(pc.createDataChannel(ALERT_CHANNEL, { ordered: true }));
+    // Device info (battery, OS, network…) for the viewer's device popup, collected fresh on each request.
+    const deviceChannel = pc.createDataChannel(DEVICE_CHANNEL);
+    deviceChannel.onmessage = async () => {
+      const info = await collectDeviceInfo({
+        stream: streamRef.current,
+        peer: pc,
+        liveSince: liveSinceRef.current,
+        viewers: peersRef.current.size,
+        wakeLock: !!wakeLockRef.current && !wakeLockRef.current.released,
+      });
+      if (deviceChannel.readyState === "open") deviceChannel.send(JSON.stringify(info));
+    };
     peersRef.current.set(viewer.id, { pc, enqueue, senders, talk, speaker });
     setViewers((v) => [...v, { ...viewer, joinedAt: Date.now(), micOn: false }]);
 
@@ -342,6 +356,8 @@ export function HostApp({ onBack }: { onBack: () => void }) {
       const ws = await openSignaling((msg) => {
         if (msg.type === "host-ok") {
           setCode(msg.code);
+          liveSinceRef.current = Date.now();
+          watchCpuPressure();
           setMaxAlerts(msg.settings.maxAlerts);
           setNtfy(msg.ntfy);
           setStatus("live");
