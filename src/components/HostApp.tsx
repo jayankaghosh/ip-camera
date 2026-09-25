@@ -515,11 +515,20 @@ export function HostApp({ onBack }: { onBack: () => void }) {
         <div className="px-1">
           <h1 className="text-2xl font-semibold tracking-tight">Choose areas to watch</h1>
           <p className="mt-1 text-sm text-muted">
-            Drag on the picture to draw a box. Movement inside any box triggers an alert. Tap ✕ to remove one.
+            Drag your finger (or mouse) on the picture to draw a box. Movement inside any box triggers an alert. Tap ✕
+            to remove one.
           </p>
         </div>
-        <div className="relative overflow-hidden rounded-[20px] bg-black">
-          <video ref={videoRef} autoPlay playsInline muted className="mirror aspect-video w-full object-contain" />
+        {/* The picture keeps the camera's own shape, so a portrait phone camera gets a tall drawing
+            area instead of a narrow strip inside a landscape box. */}
+        <div className="relative mx-auto w-fit max-w-full overflow-hidden rounded-[20px] bg-black">
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className="mirror block max-h-[65svh] min-h-40 w-auto max-w-full object-contain"
+          />
           <ZoneEditor videoRef={videoRef} zones={zones} onChange={(z) => setAlertConfig({ zones: z })} />
         </div>
         <div className="flex flex-wrap items-center gap-3">
